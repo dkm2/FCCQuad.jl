@@ -12,7 +12,7 @@ using LinearAlgebra, Scratch
 Filon-Clenshaw-Curtis quadrature.
 Assuming chebfun is the coefficient vector of
 a Chebyshev expansion of f(x) of degree at least N,
-returns integral of f(x)*exp(2pi*im*w*x)*dx over [-1,1]
+returns integral of f(x)*exp(im*w*x)*dx over [-1,1]
 using degree N, and discrepancy between that and using degree N/2.
 WARNING: N is assumed to be a positive multiple of 4.
 =#
@@ -48,21 +48,21 @@ function fccquad(f::Function,freqs::AbstractArray,log2N::Integer,T=Complex{Float
 end
 
 #=
-Filon-Clenshaw-Curtis quadrature for f(x) and xf(x) on [-1,1].
+Filon-Clenshaw-Curtis quadrature for f(x) on [-1,1].
 Assuming chebfun is the coefficient vector of
 a Chebyshev expansion of degree at least N of some function f(x),
-returns, for each of i=0,1, x^i*f(x)*exp(2pi*im*w*x)*dx integrated over [-1,1]
+returns f(x)*exp(im*w*x)*dx integrated over [-1,1]
 using degree N, and discrepancy between that and using reduced_degree(N).
 WARNING: N and baseN are assumed to be even.
 =#
-function fccquadxUnit!(chebfun::AbstractVector,freq::Real,N::Integer,
+function fccquadUnit!(chebfun::AbstractVector,freq::Real,N::Integer,
                        weightmethod::Symbol,weights::AbstractVector,workspace::AbstractArray,
                        baseN=reduced_degree(N))
     getweights!(weights,workspace,length(weights)-1,freq,weightmethod)
-    fccx_core(chebfun,weights,N,baseN)
+    fcc_core(chebfun,weights,N,baseN)
 end    
 reduced_degree(N)=div(3N,4)
-function fccx_core(chebfun::AbstractVector,weights::Vector,N::Integer,baseN::Integer)
+function fcc_core(chebfun::AbstractVector,weights::Vector,N::Integer,baseN::Integer)
     @assert iseven(N) && iseven(baseN)
     a=chebfun
     i=weights
@@ -71,15 +71,7 @@ function fccx_core(chebfun::AbstractVector,weights::Vector,N::Integer,baseN::Int
     diff=(sum(a[n]*i[n] for n in N+1:-2:baseN+3) +
           sum(a[n]*i[n] for n in N:-2:baseN+2)*im)
     full = base + diff
-    
-    basex = (sum(a[n]*(i[n-1]+i[n+1]) for n in baseN:-2:2)*0.5 + 
-             sum(a[n]*(i[n-1]+i[n+1]) for n in baseN-1:-2:3)*0.5im +
-             a[1]*i[2]*im)
-    diffx = (sum(a[n]*(i[n-1]+i[n+1]) for n in N:-2:baseN+2)*0.5 + 
-             sum(a[n]*(i[n-1]+i[n+1]) for n in N-1:-2:baseN+1)*0.5im)
-    fullx = basex + diffx
-             
-    full,diff,fullx,diffx
+    full,diff
 end
 #=
 Alternative, more flexible error estimation method
@@ -87,7 +79,7 @@ that compares the results of using two user-provided Chebyshev expansions
 instead of one Chebyshev expansion and its truncation.
 WARNING: N and baseN are assumed to be even.
 =#
-function fccx_alt(chebfun::AbstractVector,basefun::AbstractVector,
+function fcc_alt(chebfun::AbstractVector,basefun::AbstractVector,
                   weights::Vector,N::Integer,baseN::Integer)
     @assert iseven(N) && iseven(baseN)
     a,b,i=chebfun,basefun,weights
@@ -96,16 +88,7 @@ function fccx_alt(chebfun::AbstractVector,basefun::AbstractVector,
     base=(sum(b[n]*i[n] for n in baseN+1:-2:1) +
           sum(b[n]*i[n] for n in baseN:-2:2)*im)
     diff = full - base
-    
-    fullx = (sum(a[n]*(i[n-1]+i[n+1]) for n in N:-2:2)*0.5 + 
-             sum(a[n]*(i[n-1]+i[n+1]) for n in N-1:-2:3)*0.5im +
-             a[1]*i[2]*im)
-    basex = (sum(b[n]*(i[n-1]+i[n+1]) for n in baseN:-2:2)*0.5 + 
-             sum(b[n]*(i[n-1]+i[n+1]) for n in baseN-1:-2:3)*0.5im +
-             b[1]*i[2]*im)
-    diffx = fullx - basex
-             
-    full,diff,fullx,diffx
+    full,diff
 end
 
 #=
@@ -113,55 +96,52 @@ Filon-Clenshaw-Curtis quadrature for f(x) and xf(x)
 with arbitrary finite interval domain.
 Assuming chebfun is the coefficient vector of
 a Chebyshev expansion of degree at least N of some function g(x)=f(c+rx),
-returns, for each of i=0,1, the integral over [-1,1] of
-(c+rx)^i*f(c+rx)*exp(2pi*im*(w*(c+rx)+v*rx))*d(c+rx)
+returns the integral over [-1,1] of f(c+rx)*exp(2pi*im*(w*(c+rx)+v*rx))*d(c+rx)
 using degree N, and discrepancy between that and using degree baseN.
 Above, w=freq, c=center, r=radius, and v=doppler.
 WARNING: N and baseN are assumed to be even
 =#
-function fccquadxSampled(chebfun::AbstractVector,freq::Real,N::Integer,center::Real,radius::Real,
+function fccquadSampled(chebfun::AbstractVector,freq::Real,N::Integer,center::Real,radius::Real,
                          doppler::Real=0.0,weightmethod::Symbol=:thomas,baseN::Integer=reduced_degree(N))
     weights,workspace=weights_alloc(N,weightmethod)[1:2]
-    fccquadxSampled!(chebfun,freq,N,center,radius,doppler,weightmethod,weights,workspace,baseN)
+    fccquadSampled!(chebfun,freq,N,center,radius,doppler,weightmethod,weights,workspace,baseN)
 end
-function fccquadxSampled!(chebfun::AbstractVector,freq::Real,N::Integer,
+function fccquadSampled!(chebfun::AbstractVector,freq::Real,N::Integer,
                           center::Real,radius::Real,doppler::Real,
                           weightmethod::Symbol,weights::AbstractVector,workspace::AbstractArray,
                           baseN::Integer=reduced_degree(N))
     w = freq*radius + doppler
-    interval_transform(fccquadxUnit!(chebfun,w,N,weightmethod,weights,workspace,baseN)...,freq,center,radius)
+    interval_transform(fccquadUnit!(chebfun,w,N,weightmethod,weights,workspace,baseN)...,freq,center,radius)
 end
-function interval_transform(full,diff,fullx,diffx,freq,center,radius)
-    fullx = full*center + fullx*radius
-    diffx = diff*center + diffx*radius
+function interval_transform(full,diff,freq,center,radius)
     si,co=sincos(freq*center)
     mult = radius*complex(co,si)
-    full*mult, diff*mult, fullx*mult, diffx*mult
+    full*mult, diff*mult
 end
 
 #=
-#Integral of x^i*f(x)*exp(2pi*im*w*x)*dx over [xmin,xmax] for i=0,1
+#Integral of f(x)*exp(im*w*x)*dx over [xmin,xmax]
 #computed using degree-N Filon-Clensaw-Curtis quadrature.
 #WARNING: N is assumed to be a power of 2; baseN is assumed to be even.
 =#
-function fccquadxLimits(f::Function,xmin::Real,xmax::Real,freq::Real,
+function fccquadLimits(f::Function,xmin::Real,xmax::Real,freq::Real,
                         N::Integer,weightmethod::Symbol,baseN=reduced_degree(N))
     center, radius = 0.5(xmin+xmax), 0.5(xmax-xmin)
     g(x)=f(x*radius + center)
     a=Fct.chebcoeffs(Fct.chebsample(g,N))
-    fccquadxSampled(a,freq,N,center,radius,0.,weightmethod,baseN)
+    fccquadSampled(a,freq,N,center,radius,0.,weightmethod,baseN)
 end
 
-#Returns x^i*f(x)*exp(2pi*im*w*x) over -1,1 for i=0,1 using degree N
+#Returns f(x)*exp(im*w*x) over -1,1 using degree N
 #and discrepancy between that and using reduced_degree(N).
 #WARNING: log2N is assumed to be at least 2.
-function fccquadxBatch(f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol;
+function fccquadBatch(f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol;
                        T::Type=Complex{Float64})
     output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
-    fccquadxBatch!(output,workspaces,0.0,1.0,f,freqs,log2N,weightmethod)
+    fccquadBatch!(output,workspaces,0.0,1.0,f,freqs,log2N,weightmethod)
 end
 function fccquad_alloc(freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
-    output=Matrix{T}(undef,4,length(freqs))
+    output=Matrix{T}(undef,2,length(freqs))
     N=1<<log2N
     samples = Vector{T}(undef,1+N)
     fct_workspaces = Fct.fct_alloc(samples,T)
@@ -169,7 +149,7 @@ function fccquad_alloc(freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,
     workspaces = (samples,fct_workspaces),(weights,weights_workspace)
     output,workspaces
 end
-function fccquadxBatch!(output::AbstractArray,workspaces,center::Real,radius::Real,
+function fccquadBatch!(output::AbstractArray,workspaces,center::Real,radius::Real,
                         f::Function,freqs::AbstractArray,log2N::Integer,
                         weightmethod::Symbol,baseN=reduced_degree(1<<log2N))
     N=1<<log2N
@@ -179,8 +159,8 @@ function fccquadxBatch!(output::AbstractArray,workspaces,center::Real,radius::Re
     M=length(freqs)
     weights,weights_workspace = workspaces[2]
     for m in 1:M
-        output[:,m] = collect(fccquadxSampled!(a,freqs[m],N,center,radius,0.,
-                                               weightmethod,weights,weights_workspace,baseN))
+        output[:,m] = collect(fccquadSampled!(a,freqs[m],N,center,radius,0.,
+                                              weightmethod,weights,weights_workspace,baseN))
     end
     output
 end
@@ -192,22 +172,17 @@ function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},m
     g(x) = f(x*radius + center)
     N = 16
     samples=Fct.chebsample(g,N)
-    output=Array{T}(undef,4,length(freqs))
+    output=Array{T}(undef,2,length(freqs))
     while true
         chebfun=Fct.chebcoeffs(samples)
         weights,workspace=weights_alloc(N,:thomas)[1:2]
         for m in 1:length(freqs)
-            output[:,m] = collect(fccquadxSampled!(chebfun,freqs[m],N,center,radius,0.0,
+            output[:,m] = collect(fccquadSampled!(chebfun,freqs[m],N,center,radius,0.0,
                                                     :thomas,weights,workspace))
         end
         base=norm(view(output,1,:))
         delta=norm(view(output,2,:))
-        basex=norm(view(output,3,:))
-        deltax=norm(view(output,4,:))
-        #println((N,base,delta,basex,deltax))
-        if ((delta <= base * reltol || delta * radius <= abstol) &&
-            (deltax<= basex* reltol || deltax* radius <= abstol)) ||
-            N >= maxdegree
+        if (delta <= base * reltol || delta * radius <= abstol) || N >= maxdegree
             break
         end
         samples = Fct.doublesample(g,samples)
@@ -216,7 +191,7 @@ function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},m
     output,N+1
 end
 
-#Returns x^i*f(x)*exp(2pi*im*w*x) over -1,1 for i=0,1 using degree N
+#Returns f(x)*exp(im*w*x) over -1,1 using degree N
 #and discrepancy between that and using degree N/2.
 #Uses tone (linear phase) removal.
 #WARNING: log2N is assumed to be at least 2.
@@ -238,19 +213,19 @@ function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
     a=Fct.chebcoeffs!(Fct.chebsample!(h,samples,N),fct_workspaces...)
     weights,weights_workspace = workspaces[2]
     for m in 1:length(freqs)
-        output[:,m] = collect(fccquadxSampled!(a,freqs[m],N,center,radius,cfreq,
-                                               weightmethod,weights,weights_workspace))
+        output[:,m] = collect(fccquadSampled!(a,freqs[m],N,center,radius,cfreq,
+                                              weightmethod,weights,weights_workspace))
     end
     output
 end
 
-#Returns x^i*f(x)*exp(2pi*im*w*x) over -1,1 for i=0,1 using degree N
+#Returns f(x)*exp(im*w*x) over -1,1 using degree N
 #and discrepancy between that and using degree N/2.
 #Uses linear chirp removal.
 #WARNING: log2N is assumed to be at least 2.
 function chirpquad(f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol=:thomas;
                    T::Type=Complex{Float64})
-    output=Matrix{T}(undef,4,length(freqs))
+    output=Matrix{T}(undef,2,length(freqs))
     chirpquad!(output,0.0,1.0,f,freqs,log2N,weightmethod;T=T)
 end
 function chirpquad!(output::AbstractArray,center::Real,radius::Real,
@@ -263,12 +238,9 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
     chirp::Real = Jets.phase_acceleration(jet)
     if Chirps.rates[end] < abs(chirp)
         #give up, output garbage
-        #println((center,radius,chirp,Chirps.rates[5]))
         output[:,1:length(freqs)-1] .= zero(eltype(output))
         output[1,end] = one(eltype(output))
-        output[3,end] = one(eltype(output))
         output[2,end] = Inf
-        output[4,end] = Inf
         return output
     end    
     function h(y)
@@ -296,22 +268,22 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
     for m in 1:length(freqs)
         w = freqs[m]*radius + cfreq
         getweights!(weights,workspace,deg4,w,weightmethod)
-        step1 = fccx_alt(ab.coeff,ab2.coeff,weights,deg1,deg2)
+        step1 = fcc_alt(ab.coeff,ab2.coeff,weights,deg1,deg2)
         step2 = interval_transform(step1...,freqs[m],center,radius)
         output[:,m] = collect(step2)
     end
     output
 end
 
-#Adaptively integrates x^i*f(x)*exp(2pi*im*w*x) for a batch of w, for i=0,1.
+#Adaptively integrates f(x)*exp(im*w*x) for a batch of w, for i=0,1.
 function adaptquad(f::Function,freqs::AbstractArray,log2N::Integer;
                    xmin=-1.0,xmax=1.0,reltol=1e-8,abstol=0.0,
                    interpolation=:tone,weightmethod=:thomas,T::Type=Complex{Float64})
-    output=zeros(T,4,length(freqs))
+    output=zeros(T,2,length(freqs))
     center = 0.5(xmax + xmin)
     radius = 0.5(xmax - xmin)
     if interpolation == :chirp
-        subintegrals,workspaces = Array{T}(undef,4,length(freqs)),nothing
+        subintegrals,workspaces = Array{T}(undef,2,length(freqs)),nothing
     else
         subintegrals,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
     end
@@ -327,20 +299,16 @@ function adaptquad!(output::AbstractArray,subintegrals::AbstractArray,workspaces
     elseif interpolation == :tone #Filon-Clenshaw-Curtis quadrature with tone removal
         tonequad!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod)
     else #Filon-Clenshaw-Curtis quadrature (:plain)
-        fccquadxBatch!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod)
+        fccquadBatch!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod)
     end
     base=norm(view(subintegrals,1,:))
     delta=norm(view(subintegrals,2,:))
-    basex=norm(view(subintegrals,3,:))
-    deltax=norm(view(subintegrals,4,:))
     evals = isfinite(delta) ? 1+(1<<log2N) : 1
-    if ((delta <= base * reltol || delta  <= abstol) &&
-        (deltax<= basex* reltol || deltax <= abstol))
+    if delta <= base * reltol || delta  <= abstol
         output .+= subintegrals
     else
-        #println((center,radius,delta/base,deltax/basex))
         r = 0.25radius
-        abstol = 0.25max(abstol, min(base * reltol, basex * reltol))
+        abstol = 0.25max(abstol, base * reltol)
         for t in -3:2:3
             evals += adaptquad!(output,subintegrals,workspaces,r*t+center,r,
                                 f,freqs,log2N,reltol,abstol,interpolation,weightmethod)[2]
