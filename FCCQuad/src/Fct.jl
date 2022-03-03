@@ -177,6 +177,4 @@ function doublesample(f,oldsamples)
     samples
 end
 
- __init__(args...) = println("Fct.__init__($args)")
-
 end #module

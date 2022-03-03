@@ -243,6 +243,4 @@ phasepoly(z::Jet)=complex(0.,phase_acceleration(z)),complex(0.,phase_velocity(z)
 phase_velocity(z::Jet)=imag(z.b/z.a)
 phase_acceleration(z::Jet)=imag((z.c*z.a-0.5*z.b*z.b)/(z.a*z.a))
 
-__init__(args...) = println("Jets.__init__($args)")
-
 end #module

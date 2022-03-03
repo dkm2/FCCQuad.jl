@@ -1,6 +1,7 @@
 module Chirps
 
-using HDF5, Fct
+using HDF5, ..Fct
+
 thresholds = [
   5   1.5
   6   4.0
@@ -51,8 +52,6 @@ function load(file)
     end
     close(h)
 end
-
-__init__(args...) = println("Chirps.__init__($args)")
 
 end #module
 

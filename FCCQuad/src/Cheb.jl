@@ -4,7 +4,7 @@ multiplication, dilation, and truncation.
 =#
 module Cheb
 
-using Fct: chebsample, chebcoeffs, doublesample
+using ..Fct
 
 abstract type ChebSeries{T<:Number} end
 struct FullChebSeries{T<:Number} <: ChebSeries{T}
@@ -169,13 +169,13 @@ and well approximated by sum_n c[n+1] T_n(x).
 function autocheb(f;log2N0::Integer=1,T=Complex{Float64})
     N = 2^max(log2N0,1)
     while true
-        samples = chebsample(f,2N;T=T) #length 2N+1
-        coeffs = chebcoeffs(samples,T)
+        samples = Fct.chebsample(f,2N;T=T) #length 2N+1
+        coeffs = Fct.chebcoeffs(samples,T)
         head = sum(abs2(coeffs[k]) for k in N+1:-1:1)
         tail = sum(abs2(coeffs[k]) for k in 2N+1:-1:N+2)
         rtol = eps()*(N<=64 ? N<=32 ? 1 : 4 : N<=128 ? 16 : N)
         if tail > head * rtol^2 && N <= 2^19
-            samples = doublesample(f,samples)
+            samples = Fct.doublesample(f,samples)
             N<<=1
         else
             return view(coeffs,1:min(N+1,2N+1))
@@ -192,7 +192,5 @@ function autotruncate(c::ChebSeries)
     end
     truncate(c,n)
 end
-
-__init__(args...) = println("Cheb.__init__($args)")
 
 end #module

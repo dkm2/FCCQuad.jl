@@ -1,13 +1,12 @@
 module FCCQuad
 
-using LinearAlgebra, Scratch
 include("Fct.jl")
-include("chebweights.jl")
 include("Cheb.jl")
 include("chirps.jl")
+include("chebweights.jl")
 include("Jets.jl")
-using Jets: Jet, phase_velocity, phase_acceleration
-using Fct: chebcoeffs, chebsample, doublesample, chebsample!, chebcoeffs!, fct_alloc
+
+using LinearAlgebra, Scratch
 
 #=
 Filon-Clenshaw-Curtis quadrature.
@@ -31,14 +30,14 @@ end
 
 function fccquad(f::Function,w::Real,log2N::Integer)
     N=1<<log2N
-    a=chebcoeffs(chebsample(f,N))
+    a=Fct.chebcoeffs(Fct.chebsample(f,N))
     full,diff=fccquad(a,w,N)
     full,abs(diff)
 end
 
 function fccquad(f::Function,freqs::AbstractArray,log2N::Integer,T=Complex{Float64})
     N=1<<log2N
-    a=chebcoeffs(chebsample(f,N,T))
+    a=Fct.chebcoeffs(Fct.chebsample(f,N,T))
     M=length(freqs)
     result=Array{T}(undef,2,M)
     for m in 1:M
@@ -149,7 +148,7 @@ function fccquadxLimits(f::Function,xmin::Real,xmax::Real,freq::Real,
                         N::Integer,weightmethod::Symbol,baseN=reduced_degree(N))
     center, radius = 0.5(xmin+xmax), 0.5(xmax-xmin)
     g(x)=f(x*radius + center)
-    a=chebcoeffs(chebsample(g,N))
+    a=Fct.chebcoeffs(Fct.chebsample(g,N))
     fccquadxSampled(a,freq,N,center,radius,0.,weightmethod,baseN)
 end
 
@@ -165,7 +164,7 @@ function fccquad_alloc(freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,
     output=Matrix{T}(undef,4,length(freqs))
     N=1<<log2N
     samples = Vector{T}(undef,1+N)
-    fct_workspaces = fct_alloc(samples,T)
+    fct_workspaces = Fct.fct_alloc(samples,T)
     weights,weights_workspace = weights_alloc(N,weightmethod,real(T))[1:2]
     workspaces = (samples,fct_workspaces),(weights,weights_workspace)
     output,workspaces
@@ -176,7 +175,7 @@ function fccquadxBatch!(output::AbstractArray,workspaces,center::Real,radius::Re
     N=1<<log2N
     g(x)=f(x*radius + center)
     samples,fct_workspaces = workspaces[1]
-    a=chebcoeffs!(chebsample!(g,samples,N),fct_workspaces...)
+    a=Fct.chebcoeffs!(Fct.chebsample!(g,samples,N),fct_workspaces...)
     M=length(freqs)
     weights,weights_workspace = workspaces[2]
     for m in 1:M
@@ -192,10 +191,10 @@ function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},m
     radius = 0.5(xmax - xmin)
     g(x) = f(x*radius + center)
     N = 16
-    samples=chebsample(g,N)
+    samples=Fct.chebsample(g,N)
     output=Array{T}(undef,4,length(freqs))
     while true
-        chebfun=chebcoeffs(samples)
+        chebfun=Fct.chebcoeffs(samples)
         weights,workspace=weights_alloc(N,:thomas)[1:2]
         for m in 1:length(freqs)
             output[:,m] = collect(fccquadxSampled!(chebfun,freqs[m],N,center,radius,0.0,
@@ -211,7 +210,7 @@ function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},m
             N >= maxdegree
             break
         end
-        samples = doublesample(g,samples)
+        samples = Fct.doublesample(g,samples)
         N<<=1
     end
     output,N+1
@@ -230,13 +229,13 @@ function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
                    f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol)
     N=1<<log2N
     g(x)=f(x*radius + center)
-    cfreq = phase_velocity(g(Jet(0,1)))
+    cfreq = Jets.phase_velocity(g(Jets.Jet(0,1)))
     function h(y)
         s,c=sincos(cfreq*y)
         g(y)*complex(c,-s)
     end
     samples,fct_workspaces = workspaces[1]
-    a=chebcoeffs!(chebsample!(h,samples,N),fct_workspaces...)
+    a=Fct.chebcoeffs!(Fct.chebsample!(h,samples,N),fct_workspaces...)
     weights,weights_workspace = workspaces[2]
     for m in 1:length(freqs)
         output[:,m] = collect(fccquadxSampled!(a,freqs[m],N,center,radius,cfreq,
@@ -259,9 +258,9 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
                     T::Type=Complex{Float64})
     N=1<<log2N
     g(x)=f(x*radius + center)
-    jet = g(Jet(0,1))
-    cfreq::Real = phase_velocity(jet)
-    chirp::Real = phase_acceleration(jet)
+    jet = g(Jets.Jet(0,1))
+    cfreq::Real = Jets.phase_velocity(jet)
+    chirp::Real = Jets.phase_acceleration(jet)
     if Chirps.rates[end] < abs(chirp)
         #give up, output garbage
         #println((center,radius,chirp,Chirps.rates[5]))
@@ -276,7 +275,7 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
         s,c=sincos(y*(cfreq+y*chirp))
         g(y)*complex(c,-s)
     end
-    a=Cheb.ChebSeries(chebcoeffs(chebsample(h,N)))
+    a=Cheb.ChebSeries(Fct.chebcoeffs(Fct.chebsample(h,N)))
 
     index=findfirst(x->abs(chirp)<=x,Chirps.rates)::Integer
     faster=Chirps.rates[index]
@@ -350,16 +349,11 @@ function adaptquad!(output::AbstractArray,subintegrals::AbstractArray,workspaces
     output,evals
 end
 
-function __init__(args...)
-    println("FCCQuad.__init__($args)")
+function __init__()
     cache_dir = @get_scratch!("precomputed_chebyshev_weights")
     cache_file = joinpath(cache_dir,"chirps.h5")
     isfile(cache_file) || Chirps.store(cache_file)
     Chirps.load(cache_file)
-    Fct.__init__(1)
-    Cheb.__init__(1)
-    Chirps.__init__(1)
-    Jets.__init__(1)
 end
 
 end #module
