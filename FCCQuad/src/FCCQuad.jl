@@ -102,8 +102,9 @@ Above, w=freq, c=center, r=radius, and v=doppler.
 WARNING: N and baseN are assumed to be even
 =#
 function fccquadSampled(chebfun::AbstractVector,freq::Real,N::Integer,center::Real,radius::Real,
-                         doppler::Real=0.0,weightmethod::Symbol=:thomas,baseN::Integer=reduced_degree(N))
-    weights,workspace=weights_alloc(N,weightmethod)[1:2]
+                        doppler::Real=0.0,weightmethod::Symbol=:thomas,baseN::Integer=reduced_degree(N))
+    T = promote_type(eltype(freq),typeof(center),typeof(radius),typeof(doppler))
+    weights,workspace=weights_alloc(N,weightmethod,T)[1:2]
     fccquadSampled!(chebfun,freq,N,center,radius,doppler,weightmethod,weights,workspace,baseN)
 end
 function fccquadSampled!(chebfun::AbstractVector,freq::Real,N::Integer,
@@ -138,7 +139,7 @@ end
 function fccquadBatch(f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol;
                        T::Type=Complex{Float64})
     output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
-    fccquadBatch!(output,workspaces,0.0,1.0,f,freqs,log2N,weightmethod)
+    fccquadBatch!(output,workspaces,zero(real(T)),one(real(T)),f,freqs,log2N,weightmethod)
 end
 function fccquad_alloc(freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
     output=Matrix{T}(undef,2,length(freqs))
@@ -166,19 +167,20 @@ function fccquadBatch!(output::AbstractArray,workspaces,center::Real,radius::Rea
 end
 
 function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},maxdegree=1<<20,
-                     xmin=-1.0,xmax=1.0,reltol::Real=1e-8,abstol::Real=0.0)
-    center = 0.5(xmax + xmin)
-    radius = 0.5(xmax - xmin)
+                     xmin=-1,xmax=1,reltol::Real=1e-8,abstol::Real=0.0)
+    xminT,xmaxT = real(T)(xmin),real(T)(xmax)
+    center = 0.5(xmaxT + xminT)
+    radius = 0.5(xmaxT - xminT)
     g(x) = f(x*radius + center)
     N = 16
-    samples=Fct.chebsample(g,N)
+    samples=Fct.chebsample(g,N;T=T)
     output=Array{T}(undef,2,length(freqs))
     while true
         chebfun=Fct.chebcoeffs(samples)
-        weights,workspace=weights_alloc(N,:thomas)[1:2]
+        weights,workspace=weights_alloc(N,:thomas,real(T))[1:2]
         for m in 1:length(freqs)
             output[:,m] = collect(fccquadSampled!(chebfun,freqs[m],N,center,radius,0.0,
-                                                    :thomas,weights,workspace))
+                                                  :thomas,weights,workspace))
         end
         base=norm(view(output,1,:))
         delta=norm(view(output,2,:))
@@ -198,13 +200,13 @@ end
 function tonequad(f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol=:thomas;
                   T::Type=Complex{Float64})
     output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
-    tonequad!(output,workspaces,0.0,1.0,f,freqs,log2N,weightmethod)
+    tonequad!(output,workspaces,zero(real(T)),one(real(T)),f,freqs,log2N,weightmethod)
 end
 function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
-                   f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol)
+                   f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
     N=1<<log2N
     g(x)=f(x*radius + center)
-    cfreq = Jets.phase_velocity(g(Jets.Jet(0,1)))
+    cfreq = Jets.phase_velocity(g(Jets.Jet(zero(real(T)),one(real(T)))))
     function h(y)
         s,c=sincos(cfreq*y)
         g(y)*complex(c,-s)
@@ -226,14 +228,14 @@ end
 function chirpquad(f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol=:thomas;
                    T::Type=Complex{Float64})
     output=Matrix{T}(undef,2,length(freqs))
-    chirpquad!(output,0.0,1.0,f,freqs,log2N,weightmethod;T=T)
+    chirpquad!(output,zero(real(T)),one(real(T)),f,freqs,log2N,weightmethod;T=T)
 end
 function chirpquad!(output::AbstractArray,center::Real,radius::Real,
                     f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol;
                     T::Type=Complex{Float64})
     N=1<<log2N
     g(x)=f(x*radius + center)
-    jet = g(Jets.Jet(0,1))
+    jet = g(Jets.Jet(zero(real(T)),one(real(T))))
     cfreq::Real = Jets.phase_velocity(jet)
     chirp::Real = Jets.phase_acceleration(jet)
     if Chirps.rates[end] < abs(chirp)
@@ -247,7 +249,7 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
         s,c=sincos(y*(cfreq+y*chirp))
         g(y)*complex(c,-s)
     end
-    a=Cheb.ChebSeries(Fct.chebcoeffs(Fct.chebsample(h,N)))
+    a=Cheb.ChebSeries(Fct.chebcoeffs(Fct.chebsample(h,N;T=T)))
 
     index=findfirst(x->abs(chirp)<=x,Chirps.rates)::Integer
     faster=Chirps.rates[index]
@@ -264,7 +266,7 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
     deg2 = max(1, deg2 >> 2) << 2 #truncate to multiple of 4
     deg3 = max(deg,deg2)
 
-    weights,workspace,deg4=weights_alloc(deg3,weightmethod)
+    weights,workspace,deg4=weights_alloc(deg3,weightmethod,real(T))
     for m in 1:length(freqs)
         w = freqs[m]*radius + cfreq
         getweights!(weights,workspace,deg4,w,weightmethod)
@@ -280,6 +282,7 @@ function adaptquad(f::Function,freqs::AbstractArray,log2N::Integer;
                    xmin=-1.0,xmax=1.0,reltol=1e-8,abstol=0.0,
                    interpolation=:tone,weightmethod=:thomas,T::Type=Complex{Float64})
     output=zeros(T,2,length(freqs))
+    xminT,xmaxT = real(T)(xmin),real(T)(xmax)
     center = 0.5(xmax + xmin)
     radius = 0.5(xmax - xmin)
     if interpolation == :chirp
@@ -287,17 +290,18 @@ function adaptquad(f::Function,freqs::AbstractArray,log2N::Integer;
     else
         subintegrals,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
     end
-    adaptquad!(output,subintegrals,workspaces,center,radius,f,freqs,log2N,reltol,abstol,interpolation,weightmethod)
+    adaptquad!(output,subintegrals,workspaces,center,radius,f,freqs,
+               log2N,reltol,abstol,interpolation,weightmethod,T)
 end
 #adds results in place to output
 function adaptquad!(output::AbstractArray,subintegrals::AbstractArray,workspaces,
-                    center::Real,radius::Real,
-                    f::Function,freqs::AbstractArray,log2N::Integer,
-                    reltol::Real,abstol::Real,interpolation::Symbol,weightmethod::Symbol)
+                    center::Real,radius::Real,f::Function,freqs::AbstractArray,
+                    log2N::Integer,reltol::Real,abstol::Real,
+                    interpolation::Symbol,weightmethod::Symbol,T::Type)
     if interpolation == :chirp #Filon-Clenshaw-Curtis quadrature with linear chirp removal
-        chirpquad!(subintegrals,center,radius,f,freqs,log2N,weightmethod)
+        chirpquad!(subintegrals,center,radius,f,freqs,log2N,weightmethod,T)
     elseif interpolation == :tone #Filon-Clenshaw-Curtis quadrature with tone removal
-        tonequad!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod)
+        tonequad!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod,T)
     else #Filon-Clenshaw-Curtis quadrature (:plain)
         fccquadBatch!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod)
     end
@@ -311,7 +315,7 @@ function adaptquad!(output::AbstractArray,subintegrals::AbstractArray,workspaces
         abstol = 0.25max(abstol, base * reltol)
         for t in -3:2:3
             evals += adaptquad!(output,subintegrals,workspaces,r*t+center,r,
-                                f,freqs,log2N,reltol,abstol,interpolation,weightmethod)[2]
+                                f,freqs,log2N,reltol,abstol,interpolation,weightmethod,T)[2]
         end
     end
     output,evals

@@ -1,3 +1,6 @@
+#=
+Lightweight implementation of forward-mode second-degree autodiff.
+=#
 module Jets
 
 import SpecialFunctions: erf, erfc, erfcinv, dawson
