@@ -184,7 +184,7 @@ function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},m
         end
         base=norm(view(output,1,:))
         delta=norm(view(output,2,:))
-        if (delta <= base * reltol || delta * radius <= abstol) || N >= maxdegree
+        if (delta <= base * reltol || delta <= abstol) || N >= maxdegree
             break
         end
         samples = Fct.doublesample(g,samples)
