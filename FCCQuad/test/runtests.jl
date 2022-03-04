@@ -68,7 +68,7 @@ function chebpair(n::Integer,x)
     end
 end
 
-@testset "Chebyshev pre-weights" begin
+@testset "Chebyshev weights" begin
     function checkweights(N,w,args...)
         a = getweights(N,w,args...)
         atol2 = N*eps()^2

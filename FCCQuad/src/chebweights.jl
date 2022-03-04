@@ -52,7 +52,7 @@ function padding(N::Integer,T::Type=Float64)
     elseif T==Float32
         return 3+2round(Int64,0.5+sqrt(8.5N),RoundUp)
     else
-        throw("Unsupported type for Chebyshev pre-weight computation")
+        throw("Unsupported type for Chebyshev weight computation")
     end
 end
 function getweights!(out::AbstractArray,work::AbstractArray,N::Integer,w::Real,method::Symbol)
