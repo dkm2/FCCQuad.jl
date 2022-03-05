@@ -119,14 +119,14 @@ end
 #Degree-adaptive FCC quadrature.
 function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},maxdegree=1<<20,
                      xmin=-1,xmax=1,reltol::Real=1e-8,abstol::Real=0.0,
-                     weightmethod::Symbol=:thomas,vectornorm)
+                     weightmethod::Symbol=:thomas,vectornorm=LinearAlgebra.norm)
     xminT,xmaxT = real(T)(xmin),real(T)(xmax)
     center = 0.5(xmaxT + xminT)
     radius = 0.5(xmaxT - xminT)
     g(x) = f(x*radius + center)
     N = 16
     samples=Fct.chebsample(g,N;T=T)
-    output=Array{T}(undef,2,length(freqs))
+    output=Matrix{T}(undef,2,length(freqs))
     while true
         chebfun=Fct.chebcoeffs(samples)
         weights,workspace=weights_alloc(N,weightmethod,real(T))[1:2]
@@ -255,7 +255,7 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AbstractArray{<
     center = 0.5(xmax + xmin)
     radius = 0.5(xmax - xmin)
     if method == :chirp
-        subintegrals,workspaces = Array{T}(undef,2,length(freqs)),nothing
+        subintegrals,workspaces = Matrix{T}(undef,2,length(freqs)),nothing
     else # :plain, :tone
         subintegrals,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
     end
@@ -297,6 +297,93 @@ function interval_adaptive!(output::AbstractArray,subintegrals::AbstractArray,wo
         end
     end
     output,evals
+end
+
+
+#=
+Integrates f(x)*cos(w*x)*dx over [xmin,xmax] for all w in freqs
+where f(x)=amplitude(x)*cos(angle(x)), 
+using a variant of Filon-Chenshaw-Curtis quadrature.
+The method keyword argument specifies the variant.
+
+Outputs a tuple (results, function_evaluation_count) where results
+is a 2xL real matrix, where L=length(freqs), 
+with row 1 containing the estimated integrals
+and row 2 the discrepancies between row 1 and estimates made
+using a reduced Chebyshev interpolation degree.
+
+WARNING: amplitude(x) and angle(x) are assumed to be real-valued.
+WARNING: log2degree is assumed to be at least 2.
+=#
+function cosfccquad(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+                    T::Type=Float64,vectornorm=LinearAlgebra.norm,kwargs...)
+    symmetricfreqs = Vector{eltype(freqs)}(undef,2length(freqs))
+    for i in 1:length(freqs)
+        w = freqs[i]
+        symmetricfreqs[2i-1],symmetricfreqs[2i] = w,-w
+    end
+    workspace = Vector{T}(undef,length(freqs))
+    pseudonorm(v) = cosnorm!(v, vectornorm, workspace)
+    
+    oscillator(x) = exp(im*angle(x))
+    cis,evals = fccquad(amplitude,oscillator,symmetricfreqs;T=Complex{T},vectornorm=pseudonorm,kwargs...)
+    output = Matrix{T}(undef,2,length(freqs))
+    for i in 1:2
+        cis2cos!(view(cis,i,:),view(output,i,:))
+    end
+    output,evals
+end
+function cosnorm!(v, vectornorm, workspace)
+    cis2cos!(v, workspace)
+    vectornorm(workspace)
+end
+function cis2cos!(exps, cosines)
+    for i in 1:length(cosines)
+        cosines[i] = 0.5(real(exps[2i-1])+real(exps[2i]))
+    end
+end
+
+#=
+Integrates f(x)*sin(w*x)*dx over [xmin,xmax] for all w in freqs
+where f(x)=amplitude(x)*sin(angle(x)), 
+using a variant of Filon-Chenshaw-Curtis quadrature.
+The method keyword argument specifies the variant.
+
+Outputs a tuple (results, function_evaluation_count) where results
+is a 2xL real matrix, where L=length(freqs), 
+with row 1 containing the estimated integrals
+and row 2 the discrepancies between row 1 and estimates made
+using a reduced Chebyshev interpolation degree.
+
+WARNING: amplitude(x) and angle(x) are assumed to be real-valued.
+WARNING: log2degree is assumed to be at least 2.
+=#
+function sinfccquad(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+                    T::Type=Float64,vectornorm=LinearAlgebra.norm,kwargs...)
+    symmetricfreqs = Vector{eltype(freqs)}(undef,2length(freqs))
+    for i in 1:length(freqs)
+        w = freqs[i]
+        symmetricfreqs[2i-1],symmetricfreqs[2i] = w,-w
+    end
+    workspace = Vector{T}(undef,length(freqs))
+    pseudonorm(v) = sinnorm!(v, vectornorm, workspace)
+    
+    oscillator(x) = exp(im*angle(x))
+    cis,evals = fccquad(amplitude,oscillator,symmetricfreqs;T=Complex{T},vectornorm=pseudonorm,kwargs...)
+    output = Matrix{T}(undef,2,length(freqs))
+    for i in 1:2
+        cis2sin!(view(cis,i,:),view(output,i,:))
+    end
+    output,evals
+end
+function sinnorm!(v, vectornorm, workspace)
+    cis2sin!(v, workspace)
+    vectornorm(workspace)
+end
+function cis2sin!(exps, sines)
+    for i in 1:length(sines)
+        sines[i] = 0.5(imag(exps[2i-1])-imag(exps[2i]))
+    end
 end
 
 function __init__()
