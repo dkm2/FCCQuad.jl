@@ -2,7 +2,7 @@
 Variations on Filon-Clenshaw-Curtis quadrature.
 =#
 module FCCQuad
-export fccquad
+export fccquad, fccquad_cc, fccquad_cs, fccquad_sc, fccquad_ss
 
 include("Fct.jl")
 include("Cheb.jl")
@@ -301,8 +301,8 @@ end
 
 
 #=
-Integrates f(x)*cos(w*x)*dx over [xmin,xmax] for all w in freqs
-where f(x)=amplitude(x)*cos(angle(x)), 
+Integrates amplitude(x)*cos(angle(x))*cos(w*x)*dx 
+over [xmin,xmax] for all w in freqs
 using a variant of Filon-Chenshaw-Curtis quadrature.
 The method keyword argument specifies the variant.
 
@@ -315,74 +315,78 @@ using a reduced Chebyshev interpolation degree.
 WARNING: amplitude(x) and angle(x) are assumed to be real-valued.
 WARNING: log2degree is assumed to be at least 2.
 =#
-function cosfccquad(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
-                    T::Type=Float64,vectornorm=LinearAlgebra.norm,kwargs...)
+function fccquad_cc(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+                    kwargs...)
+    fccquad_trig(coscos!,amplitude,angle,freqs;kwargs...)
+end
+
+#Like fccquad_cc(), but integrates amplitude(x)*cos(angle(x))*sin(w*x)*dx
+function fccquad_cs(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+                    kwargs...)
+    fccquad_trig(cossin!,amplitude,angle,freqs;kwargs...)
+end
+
+#Like fccquad_cc(), but integrates amplitude(x)*sin(angle(x))*cos(w*x)*dx
+function fccquad_sc(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+                    kwargs...)
+    fccquad_trig(sincos!,amplitude,angle,freqs;kwargs...)
+end
+
+#Like fccquad_cc(), but integrates amplitude(x)*sin(angle(x))*sin(w*x)*dx
+function fccquad_ss(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+                    kwargs...)
+    fccquad_trig(sinsin!,amplitude,angle,freqs;kwargs...)
+end
+
+function fccquad_trig(transform!,amplitude::Function,angle::Function,freqs::AbstractArray;
+                      T::Type=Float64,vectornorm=LinearAlgebra.norm,kwargs...)
     symmetricfreqs = Vector{eltype(freqs)}(undef,2length(freqs))
     for i in 1:length(freqs)
         w = freqs[i]
         symmetricfreqs[2i-1],symmetricfreqs[2i] = w,-w
     end
     workspace = Vector{T}(undef,length(freqs))
-    pseudonorm(v) = cosnorm!(v, vectornorm, workspace)
+    pseudonorm(v) = trignorm!(v, workspace, transform!, vectornorm)
     
     oscillator(x) = exp(im*angle(x))
     cis,evals = fccquad(amplitude,oscillator,symmetricfreqs;T=Complex{T},vectornorm=pseudonorm,kwargs...)
     output = Matrix{T}(undef,2,length(freqs))
     for i in 1:2
-        cis2cos!(view(cis,i,:),view(output,i,:))
+        transform!(view(cis,i,:),view(output,i,:))
     end
     output,evals
 end
-function cosnorm!(v, vectornorm, workspace)
-    cis2cos!(v, workspace)
+
+function trignorm!(v, workspace, transform!, vectornorm)
+    transform!(v, workspace)
     vectornorm(workspace)
 end
-function cis2cos!(exps, cosines)
-    for i in 1:length(cosines)
-        cosines[i] = 0.5(real(exps[2i-1])+real(exps[2i]))
+
+function coscos!(exps, trigs)
+    for i in 1:length(trigs)
+        #2cos(a)cos(b)==cos(a+b)+cos(a-b)
+        trigs[i] = 0.5(real(exps[2i-1])+real(exps[2i]))
     end
 end
 
-#=
-Integrates f(x)*sin(w*x)*dx over [xmin,xmax] for all w in freqs
-where f(x)=amplitude(x)*cos(angle(x)), 
-using a variant of Filon-Chenshaw-Curtis quadrature.
-The method keyword argument specifies the variant.
-
-Outputs a tuple (results, function_evaluation_count) where results
-is a 2xL real matrix, where L=length(freqs), 
-with row 1 containing the estimated integrals
-and row 2 the discrepancies between row 1 and estimates made
-using a reduced Chebyshev interpolation degree.
-
-WARNING: amplitude(x) and angle(x) are assumed to be real-valued.
-WARNING: log2degree is assumed to be at least 2.
-=#
-function sinfccquad(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
-                    T::Type=Float64,vectornorm=LinearAlgebra.norm,kwargs...)
-    symmetricfreqs = Vector{eltype(freqs)}(undef,2length(freqs))
-    for i in 1:length(freqs)
-        w = freqs[i]
-        symmetricfreqs[2i-1],symmetricfreqs[2i] = w,-w
+function cossin!(exps, trigs)
+    for i in 1:length(trigs)
+        #2cos(a)sin(b)==sin(a+b)-sin(a-b)
+        trigs[i] = 0.5(imag(exps[2i-1])-imag(exps[2i]))
     end
-    workspace = Vector{T}(undef,length(freqs))
-    pseudonorm(v) = sinnorm!(v, vectornorm, workspace)
-    
-    oscillator(x) = exp(im*angle(x))
-    cis,evals = fccquad(amplitude,oscillator,symmetricfreqs;T=Complex{T},vectornorm=pseudonorm,kwargs...)
-    output = Matrix{T}(undef,2,length(freqs))
-    for i in 1:2
-        cis2sin!(view(cis,i,:),view(output,i,:))
+end
+
+function sincos!(exps, trigs)
+    for i in 1:length(trigs)
+        #2sin(a)cos(b)==sin(a+b)+sin(a-b)
+        trigs[i] = 0.5(imag(exps[2i-1])+imag(exps[2i]))
     end
-    output,evals
 end
-function sinnorm!(v, vectornorm, workspace)
-    cis2sin!(v, workspace)
-    vectornorm(workspace)
-end
-function cis2sin!(exps, sines)
-    for i in 1:length(sines)
-        sines[i] = 0.5(imag(exps[2i-1])-imag(exps[2i]))
+
+function sinsin!(exps, trigs)
+    for i in 1:length(trigs)
+        #2sin(a)sin(b)==cos(a-b)-cos(a+b)
+        trigs[i] = 0.5(real(exps[2i])-real(exps[2i-1]))
     end
 end
 
