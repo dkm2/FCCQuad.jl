@@ -148,13 +148,14 @@ end
 #Expects output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T).
 #WARNING: log2N is assumed to be at least 2.
 function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
-                   f::Function,freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
+                   prefactor::Function,oscillator::Function,
+                   freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
     N=1<<log2N
-    g(x)=f(x*radius + center)
+    g(y)=oscillator(y*radius + center)
     cfreq = Jets.phase_velocity(g(Jets.Jet(zero(real(T)),one(real(T)))))
     function h(y)
         s,c=sincos(cfreq*y)
-        g(y)*complex(c,-s)
+        prefactor(y*radius + center) * g(y) * complex(c,-s)
     end
     samples,fct_workspaces = workspaces[1]
     a=Fct.chebcoeffs!(Fct.chebsample!(h,samples,N),fct_workspaces...)
@@ -169,10 +170,10 @@ end
 #FCC quadrature with chirp removal.
 #WARNING: log2N is assumed to be at least 2.
 function chirpquad!(output::AbstractArray,center::Real,radius::Real,
-                    f::Function,freqs::AbstractArray,log2N::Integer,
-                    weightmethod::Symbol,T::Type=Complex{Float64})
+                    prefactor::Function,oscillator::Function,
+                    freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
     N=1<<log2N
-    g(x)=f(x*radius + center)
+    g(x)=oscillator(x*radius + center)
     jet = g(Jets.Jet(zero(real(T)),one(real(T))))
     cfreq::Real = Jets.phase_velocity(jet)
     chirp::Real = Jets.phase_acceleration(jet)
@@ -185,7 +186,7 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
     end    
     function h(y)
         s,c=sincos(y*(cfreq+y*chirp))
-        g(y)*complex(c,-s)
+        prefactor(y*radius + center) * g(y) * complex(c,-s)
     end
     a=Cheb.ChebSeries(Fct.chebcoeffs(Fct.chebsample(h,N;T=T)))
 
@@ -216,27 +217,35 @@ function chirpquad!(output::AbstractArray,center::Real,radius::Real,
 end
 
 #=
-Integrates f(x)*exp(im*w*x)*dx over [xmin,xmax] for all w in freqs.
+Integrates f(x)*exp(im*w*x)*dx over [xmin,xmax] for all w in freqs
+where f(x)=prefactor(x)*oscillator(x), 
+using a variant of Filon-Chenshaw-Curtis quadrature.
+The method keyword argument specifies the variant.
+
 Outputs a tuple (results, function_evaluation_count) where results
 is a 2xL complex matrix, where L=length(freqs), 
 with row 1 containing the estimated integrals
 and row 2 the discrepancies between row 1 and estimates made
 using a reduced Chebyshev interpolation degree.
+
+WARNING: oscillator(x) is assumed to be nonzero on [xmin,xmax].
 WARNING: log2degree is assumed to be at least 2.
 =#
-function fccquad(f::Function,freqs::AbstractArray{<:Real};
+function fccquad(prefactor::Function,oscillator::Function,freqs::AbstractArray{<:Real};
                  xmin::Real=-1.0,xmax::Real=1.0,
                  reltol::Real=1e-8,abstol::Real=0.0,T::Type=Complex{Float64},
                  method::Symbol=:tone,weightmethod=:thomas,
                  log2degree::Integer=6,maxdegree::Integer=1<<20)
+    product(x) = prefactor(x) * oscillator(x)
     if method == :degree
-        return adaptdegree(f,freqs;
+        return adaptdegree(product,freqs;
                            T=T,maxdegree=maxdegree,weightmethod=weightmethod,
                            xmin=xmin,xmax=xmax,reltol=reltol,abstol=abstol)
     end
     log2N = log2degree
     if method == :nonadaptive
-        return fccquadBatch(f,freqs,log2N;
+        f(x) = prefactor(x) * oscillator(x)
+        return fccquadBatch(product,freqs,log2N;
                             T=T,xmin=xmin,xmax=xmax,weightmethod=weightmethod)
     end
     output=zeros(T,2,length(freqs))
@@ -248,20 +257,22 @@ function fccquad(f::Function,freqs::AbstractArray{<:Real};
     else # :plain, :tone
         subintegrals,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
     end
-    interval_adaptive!(output,subintegrals,workspaces,center,radius,f,freqs,
-                      log2N,reltol,abstol,method,weightmethod,T)
+    interval_adaptive!(output,subintegrals,workspaces,center,radius,
+                       prefactor,oscillator,product,
+                       freqs,log2N,reltol,abstol,method,weightmethod,T)
 end
 #adds results in place to output
 function interval_adaptive!(output::AbstractArray,subintegrals::AbstractArray,workspaces,
-                            center::Real,radius::Real,f::Function,freqs::AbstractArray,
-                            log2N::Integer,reltol::Real,abstol::Real,
+                            center::Real,radius::Real,
+                            prefactor::Function,oscillator::Function,product::Function,
+                            freqs::AbstractArray,log2N::Integer,reltol::Real,abstol::Real,
                             interpolation::Symbol,weightmethod::Symbol,T::Type)
     if interpolation == :chirp #Filon-Clenshaw-Curtis quadrature with linear chirp removal
-        chirpquad!(subintegrals,center,radius,f,freqs,log2N,weightmethod,T)
+        chirpquad!(subintegrals,center,radius,prefactor,oscillator,freqs,log2N,weightmethod,T)
     elseif interpolation == :tone #Filon-Clenshaw-Curtis quadrature with tone removal
-        tonequad!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod,T)
-    else #Filon-Clenshaw-Curtis quadrature (:plain)
-        fccquadBatch!(subintegrals,workspaces,center,radius,f,freqs,log2N,weightmethod)
+        tonequad!(subintegrals,workspaces,center,radius,prefactor,oscillator,freqs,log2N,weightmethod,T)
+    else # :plain Filon-Clenshaw-Curtis quadrature
+        fccquadBatch!(subintegrals,workspaces,center,radius,product,freqs,log2N,weightmethod)
     end
     base=norm(view(subintegrals,1,:))
     delta=norm(view(subintegrals,2,:))
@@ -273,7 +284,8 @@ function interval_adaptive!(output::AbstractArray,subintegrals::AbstractArray,wo
         abstol = 0.25max(abstol, base * reltol)
         for t in -3:2:3
             evals += interval_adaptive!(output,subintegrals,workspaces,r*t+center,r,
-                                        f,freqs,log2N,reltol,abstol,interpolation,weightmethod,T)[2]
+                                        prefactor,oscillator,product,
+                                        freqs,log2N,reltol,abstol,interpolation,weightmethod,T)[2]
         end
     end
     output,evals
