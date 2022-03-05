@@ -345,7 +345,7 @@ end
 
 #=
 Integrates f(x)*sin(w*x)*dx over [xmin,xmax] for all w in freqs
-where f(x)=amplitude(x)*sin(angle(x)), 
+where f(x)=amplitude(x)*cos(angle(x)), 
 using a variant of Filon-Chenshaw-Curtis quadrature.
 The method keyword argument specifies the variant.
 
