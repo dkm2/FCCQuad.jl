@@ -118,7 +118,8 @@ end
 
 #Degree-adaptive FCC quadrature.
 function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},maxdegree=1<<20,
-                     xmin=-1,xmax=1,reltol::Real=1e-8,abstol::Real=0.0,weightmethod::Symbol=:thomas)
+                     xmin=-1,xmax=1,reltol::Real=1e-8,abstol::Real=0.0,
+                     weightmethod::Symbol=:thomas,vectornorm)
     xminT,xmaxT = real(T)(xmin),real(T)(xmax)
     center = 0.5(xmaxT + xminT)
     radius = 0.5(xmaxT - xminT)
@@ -133,8 +134,8 @@ function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},m
             output[:,m] = collect(fccquadSampled!(chebfun,freqs[m],N,center,radius,0.0,
                                                   weightmethod,weights,workspace))
         end
-        base=norm(view(output,1,:))
-        delta=norm(view(output,2,:))
+        base=vectornorm(view(output,1,:))
+        delta=vectornorm(view(output,2,:))
         if (delta <= base * reltol || delta <= abstol) || N >= maxdegree
             break
         end
@@ -234,13 +235,14 @@ WARNING: log2degree is assumed to be at least 2.
 function fccquad(prefactor::Function,oscillator::Function,freqs::AbstractArray{<:Real};
                  xmin::Real=-1.0,xmax::Real=1.0,
                  reltol::Real=1e-8,abstol::Real=0.0,T::Type=Complex{Float64},
-                 method::Symbol=:tone,weightmethod=:thomas,
+                 method::Symbol=:tone,weightmethod=:thomas,vectornorm=LinearAlgebra.norm,
                  log2degree::Integer=6,maxdegree::Integer=1<<20)
     product(x) = prefactor(x) * oscillator(x)
     if method == :degree
         return adaptdegree(product,freqs;
                            T=T,maxdegree=maxdegree,weightmethod=weightmethod,
-                           xmin=xmin,xmax=xmax,reltol=reltol,abstol=abstol)
+                           xmin=xmin,xmax=xmax,reltol=reltol,abstol=abstol,
+                           vectornorm=vectornorm)
     end
     log2N = log2degree
     if method == :nonadaptive
@@ -259,23 +261,27 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AbstractArray{<
     end
     interval_adaptive!(output,subintegrals,workspaces,center,radius,
                        prefactor,oscillator,product,
-                       freqs,log2N,reltol,abstol,method,weightmethod,T)
+                       freqs,log2N,reltol,abstol,
+                       method,weightmethod,T,vectornorm)
 end
 #adds results in place to output
 function interval_adaptive!(output::AbstractArray,subintegrals::AbstractArray,workspaces,
                             center::Real,radius::Real,
                             prefactor::Function,oscillator::Function,product::Function,
                             freqs::AbstractArray,log2N::Integer,reltol::Real,abstol::Real,
-                            interpolation::Symbol,weightmethod::Symbol,T::Type)
+                            interpolation::Symbol,weightmethod::Symbol,T::Type,vectornorm)
     if interpolation == :chirp #Filon-Clenshaw-Curtis quadrature with linear chirp removal
-        chirpquad!(subintegrals,center,radius,prefactor,oscillator,freqs,log2N,weightmethod,T)
+        chirpquad!(subintegrals,center,radius,
+                   prefactor,oscillator,freqs,log2N,weightmethod,T)
     elseif interpolation == :tone #Filon-Clenshaw-Curtis quadrature with tone removal
-        tonequad!(subintegrals,workspaces,center,radius,prefactor,oscillator,freqs,log2N,weightmethod,T)
+        tonequad!(subintegrals,workspaces,center,radius,
+                  prefactor,oscillator,freqs,log2N,weightmethod,T)
     else # :plain Filon-Clenshaw-Curtis quadrature
-        fccquadBatch!(subintegrals,workspaces,center,radius,product,freqs,log2N,weightmethod)
+        fccquadBatch!(subintegrals,workspaces,center,radius,
+                      product,freqs,log2N,weightmethod)
     end
-    base=norm(view(subintegrals,1,:))
-    delta=norm(view(subintegrals,2,:))
+    base=vectornorm(view(subintegrals,1,:))
+    delta=vectornorm(view(subintegrals,2,:))
     evals = isfinite(delta) ? 1+(1<<log2N) : 1
     if delta <= base * reltol || delta  <= abstol
         output .+= subintegrals
@@ -285,7 +291,9 @@ function interval_adaptive!(output::AbstractArray,subintegrals::AbstractArray,wo
         for t in -3:2:3
             evals += interval_adaptive!(output,subintegrals,workspaces,r*t+center,r,
                                         prefactor,oscillator,product,
-                                        freqs,log2N,reltol,abstol,interpolation,weightmethod,T)[2]
+                                        freqs,log2N,reltol,abstol,
+                                        interpolation,weightmethod,T,vectornorm
+                                        )[2]
         end
     end
     output,evals
