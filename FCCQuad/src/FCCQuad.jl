@@ -81,7 +81,7 @@ end
 
 #Integrates f(x)*exp(im*w*x)*dx over [xmin,xmax] for each w in freqs
 #using degree N and discrepancy between that and using reduced_degree(N).
-#WARNING: log2N is assumed to be at least 2.
+#WARNING: log2N is assumed to be at least 3.
 function fccquadBatch(f::Function,freqs::AbstractArray,log2N::Integer;
                       weightmethod::Symbol=:thomas,T::Type=Complex{Float64},
                       xmin::Real=-1.0,xmax::Real=1.0)
@@ -147,7 +147,7 @@ end
 
 #FCC quadrature with tone removal.
 #Expects output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T).
-#WARNING: log2N is assumed to be at least 2.
+#WARNING: log2N is assumed to be at least 3.
 function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
                    prefactor::Function,oscillator::Function,
                    freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
@@ -169,7 +169,7 @@ function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
 end
 
 #FCC quadrature with chirp removal.
-#WARNING: log2N is assumed to be at least 2.
+#WARNING: log2N is assumed to be at least 3.
 function chirpquad!(output::AbstractArray,center::Real,radius::Real,
                     prefactor::Function,oscillator::Function,
                     freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
@@ -230,7 +230,7 @@ and row 2 the discrepancies between row 1 and estimates made
 using a reduced Chebyshev interpolation degree.
 
 WARNING: oscillator(x) is assumed to be nonzero on [xmin,xmax].
-WARNING: log2degree is assumed to be at least 2.
+WARNING: log2degree is assumed to be at least 3.
 =#
 function fccquad(prefactor::Function,oscillator::Function,freqs::AbstractArray{<:Real};
                  xmin::Real=-1.0,xmax::Real=1.0,
@@ -313,7 +313,7 @@ and row 2 the discrepancies between row 1 and estimates made
 using a reduced Chebyshev interpolation degree.
 
 WARNING: amplitude(x) and angle(x) are assumed to be real-valued.
-WARNING: log2degree is assumed to be at least 2.
+WARNING: log2degree is assumed to be at least 3.
 =#
 function fccquad_cc(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
                     kwargs...)
