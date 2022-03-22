@@ -82,18 +82,18 @@ function interval_transform(full,diff,freq,center,radius)
     full*mult, diff*mult
 end
 
-#Integrates f(x)*exp(im*w*x)*dx over [xmin,xmax] for each w in freqs
+#Integrates f1(x)*f2(x)*exp(im*w*x)*dx over [xmin,xmax] for each w in freqs
 #using degree N and discrepancy between that and using reduced_degree(N).
 #WARNING: log2N must be at least 3. An @assert enforces.
-function fccquadBatch(f::Function,freqs::AA,log2N::Integer;
+function fccquadBatch(f1::Function,f2::Function,freqs::AA,log2N::Integer;
                       weightmethod::Symbol=:thomas,T::Type=Complex{Float64},
-                      xmin::Real=-1.0,xmax::Real=1.0)
+                      xmin::Real=-one(real(T)),xmax::Real=one(real(T)))
     @assert 3 <= log2N <= 62
     xminT,xmaxT = real(T)(xmin),real(T)(xmax)
     center = 0.5(xmaxT + xminT)
     radius = 0.5(xmaxT - xminT)
     output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
-    fccquadBatch!(output,workspaces,center,radius,f,freqs,log2N,weightmethod),1+(1<<log2N)
+    fccquadBatch!(output,workspaces,center,radius,f1,f2,freqs,log2N,weightmethod),1+(1<<log2N)
 end
 function fccquad_alloc(freqs::AA,log2N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
     output=Matrix{T}(undef,2,length(freqs))
@@ -105,35 +105,33 @@ function fccquad_alloc(freqs::AA,log2N::Integer,weightmethod::Symbol,T::Type=Com
     output,workspaces
 end
 function fccquadBatch!(output::AA,workspaces,center::Real,radius::Real,
-                       f::Function,freqs::AA,log2N::Integer,
+                       f1::Function,f2::Function,freqs::AA,log2N::Integer,
                        weightmethod::Symbol,baseN=reduced_degree(1<<log2N))
     N=1<<log2N
-    g(x)=f(x*radius + center)
     samples,fct_workspaces = workspaces[1]
-    a=Fct.chebcoeffs!(Fct.chebsample!(g,samples,N),fct_workspaces...)
+    a=Fct.chebcoeffs!(Fct.shiftedchebsample!(center,radius,f1,f2,samples,N),fct_workspaces...)
     M=length(freqs)
     weights,weights_workspace = workspaces[2]
     for m in 1:M
-        output[:,m] = collect(fccquadSampled!(a,freqs[m],N,center,radius,0.,
+        output[:,m] = collect(fccquadSampled!(a,freqs[m],N,center,radius,zero(real(eltype(output))),
                                               weightmethod,weights,weights_workspace,baseN))
     end
     output
 end
 
 #Degree-adaptive FCC quadrature. 
-function adaptdegree(f::Function,freqs::AA;T::Type=Complex{Float64},
+function adaptdegree(f1::Function,f2::Function,freqs::AA;T::Type=Complex{Float64},
                      minlog2degree::Integer=3,maxlog2degree::Integer=20,
-                     xmin::Real=-1,xmax::Real=1,reltol::Real=1e-8,abstol::Real=0.0,
+                     xmin::Real=-one(real(T)),xmax::Real=one(real(T)),reltol::Real=1e-8,abstol::Real=0.0,
                      weightmethod::Symbol=:thomas,vectornorm=LinearAlgebra.norm)
     @assert 3 <= minlog2degree <= maxlog2degree <= 62
     @assert xmin < xmax
     xminT,xmaxT = real(T)(xmin),real(T)(xmax)
     center = 0.5(xmaxT + xminT)
     radius = 0.5(xmaxT - xminT)
-    g(x) = f(x*radius + center)
     N = 1 << minlog2degree
     maxN = 1 << maxlog2degree
-    samples=Fct.chebsample(g,N;T=T)
+    samples=Fct.shiftedchebsample(center,radius,f1,f2,N;T=T)
     output=Matrix{T}(undef,2,length(freqs))
     while true
         chebfun=Fct.chebcoeffs(samples)
@@ -147,7 +145,7 @@ function adaptdegree(f::Function,freqs::AA;T::Type=Complex{Float64},
         if (delta <= base * reltol || delta <= abstol) || N >= maxN
             break
         end
-        samples = Fct.doublesample(g,samples)
+        samples = Fct.shifteddoublesample(center,radius,f1,f2,samples)
         N<<=1
     end
     output,N+1
@@ -156,11 +154,11 @@ end
 #=
 Degree-adaptive FCC quadrature implementation.
 Expects output,workspaces = fccquad_alloc(freqs,maxlog2degree,weightmethod,T).
-Integrates g(x)*exp(im*(w*(c+rx)+v*rx))*d(c+rx) over [-1,1] 
+Integrates f1(c+rx)*f2(c+rx)*exp(im*(w*(c+rx)+v*rx))*d(c+rx) over [-1,1] 
 for each w in freqs, where c=center, r=radius, and v=doppler.
 WARNING: log2N is assumed to be at least 3.
 =#
-function adaptdegree!(g::Function,freqs::AA,center::Real,radius::Real,doppler::Real,
+function adaptdegree!(f1::Function,f2::Function,freqs::AA,center::Real,radius::Real,doppler::Real,
                       weightmethod::Symbol,workspaces,output::AA,
                       minlog2degree::Integer,maxlog2degree::Integer,
                       reltol::Real,abstol::Real,vectornorm::Function)
@@ -170,7 +168,7 @@ function adaptdegree!(g::Function,freqs::AA,center::Real,radius::Real,doppler::R
 
     N = 1 << minlog2degree
     maxN = 1 << maxlog2degree
-    Fct.chebsample!(g,samples,N)
+    Fct.shiftedchebsample!(center,radius,f1,f2,samples,N)
     success = false
     base = 0
     while true
@@ -185,7 +183,7 @@ function adaptdegree!(g::Function,freqs::AA,center::Real,radius::Real,doppler::R
         if success || N >= maxN
             break
         end
-        Fct.doublesample!(g,samples,N)
+        Fct.shifteddoublesample!(center,radius,f1,f2,samples,N)
         N<<=1
     end
     success,N+1,base
@@ -203,15 +201,33 @@ function tonequad!(output::AA,workspaces,center::Real,radius::Real,
                    prefactor::Function,oscillator::Function,freqs::AA,
                    minlog2N::Integer,maxlog2N::Integer,weightmethod::Symbol,
                    T::Type,reltol::Real,abstol::Real,vectornorm::Function)
-    g(y)=oscillator(y*radius + center)
-    cfreq = Jets.phase_velocity(g(Jets.Jet(zero(real(T)),one(real(T)))))
-    function h(y)
-        s,c=sincos(cfreq*y)
-        prefactor(y*radius + center) * g(y) * complex(c,-s)
+    cfreq = Jets.phase_velocity(oscillator(Jets.Jet(center,radius)))
+    
+    samples,fct_workspaces = workspaces[1]
+    ifft_in,ifft_out,ifft_work = fct_workspaces
+    weights,weights_work = workspaces[2]
+
+    N = 1 << minlog2N
+    maxN = 1 << maxlog2N
+    Fct.tonechebsample!(cfreq,center,radius,prefactor,oscillator,samples,N)
+    success = false
+    base = 0
+    while true
+        Fct.chebcoeffs!(samples,ifft_in,ifft_out,ifft_work,N)
+        for m in 1:length(freqs)
+            output[:,m] = collect(fccquadSampled!(ifft_out,freqs[m],N,center,radius,cfreq,
+                                                  weightmethod,weights,weights_work))
+        end
+        base=vectornorm(view(output,1,:))
+        delta=vectornorm(view(output,2,:))
+        success = delta <= base * reltol || delta <= abstol
+        if success || N >= maxN
+            break
+        end
+        Fct.tonedoublesample!(cfreq,center,radius,prefactor,oscillator,samples,N)
+        N<<=1
     end
-    adaptdegree!(h,freqs,center,radius,cfreq,
-                 weightmethod,workspaces,output,
-                 minlog2N,maxlog2N,reltol,abstol,vectornorm)
+    success,N+1,base
 end
 
 #=
@@ -225,24 +241,19 @@ function chirpquad!(output::AA,center::Real,radius::Real,
                     prefactor::Function,oscillator::Function,freqs::AA,
                     minlog2N::Integer,maxlog2N::Integer,weightmethod::Symbol,
                     T::Type,reltol::Real,abstol::Real,vectornorm::Function)
-    g(x)=oscillator(x*radius + center)
-    jet = g(Jets.Jet(zero(real(T)),one(real(T))))
+    jet = oscillator(Jets.Jet(center,radius))
     cfreq::Real = Jets.phase_velocity(jet)
     chirp::Real = Jets.phase_acceleration(jet)
     if Chirps.rates[end] < abs(chirp)
         return false,1,Inf
     end    
-    function h(y)
-        s,c=sincos(y*(cfreq+y*chirp))
-        prefactor(y*radius + center) * g(y) * complex(c,-s)
-    end
     
     N = 1 << minlog2N
     maxN = 1 << maxlog2N
-    samples = Fct.chebsample(h,N;T=T)
+    samples = Fct.chirpchebsample(cfreq,chirp,center,radius,prefactor,oscillator,N;T=T)
     success = false
     base = Inf
-    while true    
+    while true
         a=Cheb.ChebSeries(Fct.chebcoeffs(samples))
 
         index=findfirst(x->abs(chirp)<=x,Chirps.rates)::Integer
@@ -275,7 +286,7 @@ function chirpquad!(output::AA,center::Real,radius::Real,
         if success || N >= maxN
             break
         end
-        samples = Fct.doublesample(h,samples)
+        samples = Fct.chirpdoublesample(cfreq,chirp,center,radius,prefactor,oscillator,samples)
         N<<=1
     end
     success,N+1,base
@@ -310,15 +321,14 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
     @assert 3 <= minlog2degree <= globalmaxlog2degree <= 62
     @assert 3 <= nonadaptivelog2degree <= 62
     @assert method in all_methods
-    product(x) = prefactor(x) * oscillator(x)
     if method == :degree
-        return adaptdegree(product,freqs;
+        return adaptdegree(prefactor,oscillator,freqs;
                            minlog2degree=minlog2degree,maxlog2degree=globalmaxlog2degree,
                            T=T,weightmethod=weightmethod,vectornorm=vectornorm,
                            xmin=xmin,xmax=xmax,reltol=reltol,abstol=abstol)
     end
     if method == :nonadaptive
-        return fccquadBatch(product,freqs,nonadaptivelog2degree;
+        return fccquadBatch(prefactor,oscillator,freqs,nonadaptivelog2degree;
                             T=T,xmin=xmin,xmax=xmax,weightmethod=weightmethod)
     end
     output=zeros(T,2,length(freqs))
@@ -331,13 +341,13 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
         subintegrals,workspaces = fccquad_alloc(freqs,localmaxlog2degree,weightmethod,T)
     end
     interval_adaptive!(output,subintegrals,workspaces,center,radius,
-                       prefactor,oscillator,product,freqs,
+                       prefactor,oscillator,freqs,
                        minlog2degree,localmaxlog2degree,reltol,abstol,
                        method,weightmethod,T,vectornorm)
 end
 #adds results in place to output
 function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,radius::Real,
-                            prefactor::Function,oscillator::Function,product::Function,freqs::AA,
+                            prefactor::Function,oscillator::Function,freqs::AA,
                             minlog2N::Integer,maxlog2N::Integer,reltol::Real,abstol::Real,
                             method::Symbol,weightmethod::Symbol,T::Type,vectornorm::Function)
     @assert method in interval_methods
@@ -351,8 +361,7 @@ function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,
                                      minlog2N,maxlog2N,weightmethod,
                                      T,reltol,abstol,vectornorm)
     elseif method == :plain #degree-adaptive FCC quadrature
-        g(x) = product(x*radius + center)
-        success,evals,base=adaptdegree!(g,freqs,center,radius,zero(real(T)),
+        success,evals,base=adaptdegree!(prefactor,oscillator,freqs,center,radius,zero(real(T)),
                                         weightmethod,workspaces,subintegrals,
                                         minlog2N,maxlog2N,reltol,abstol,vectornorm)
     end
@@ -363,7 +372,7 @@ function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,
         abstol = 0.25max(abstol, base * reltol)
         for t in -3:2:3
             evals += interval_adaptive!(output,subintegrals,workspaces,r*t+center,r,
-                                        prefactor,oscillator,product,
+                                        prefactor,oscillator,
                                         freqs,minlog2N,maxlog2N,reltol,abstol,
                                         method,weightmethod,T,vectornorm
                                         )[2]
@@ -421,7 +430,7 @@ function fccquad_trig(transform!,amplitude::Function,angle::Function,freqs::AA;
     workspace = Vector{T}(undef,length(freqs))
     pseudonorm(v) = trignorm!(v, workspace, transform!, vectornorm)
     
-    oscillator(x) = exp(im*angle(x))
+    oscillator(z) = exp(im*angle(z))
     cis,evals = fccquad(amplitude,oscillator,symmetricfreqs;T=Complex{T},vectornorm=pseudonorm,kwargs...)
     output = Matrix{T}(undef,2,length(freqs))
     for i in 1:2

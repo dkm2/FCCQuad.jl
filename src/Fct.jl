@@ -164,11 +164,88 @@ function chebsample!(f,samples,n::Integer=length(samples)-1,base=0,stride=1)
     samples
 end
 
+function shiftedchebsample(center,radius,f1,f2,n::Integer,base=0,stride=1;T::Type=Complex{Float64})
+    samples = Vector{T}(undef,length(base:stride:n))
+    shiftedchebsample!(center,radius,f1,f2,samples,n,base,stride)
+end
+function shiftedchebsample!(center,radius,f1,f2,samples,n::Integer=length(samples)-1,base=0,stride=1)
+    p = real(eltype(samples))(pi)
+    i=1
+    for j in base:stride:n
+        x = center + radius*cos(p*j/n)
+        samples[i] = f1(x)*f2(x)
+        i += 1
+    end
+    samples
+end
+
+function tonechebsample(cfreq,center,radius,f1,f2,n::Integer,base=0,stride=1;T::Type=Complex{Float64})
+    samples = Vector{T}(undef,length(base:stride:n))
+    tonechebsample!(cfreq,center,radius,f1,f2,samples,n,base,stride)
+end
+function tonechebsample!(cfreq,center,radius,f1,f2,samples,n::Integer=length(samples)-1,base=0,stride=1)
+    p = real(eltype(samples))(pi)
+    i=1
+    for j in base:stride:n
+        x = cos(p*j/n)
+        y = center + radius*x
+        z = x * -cfreq
+        s,c = sincos(z)
+        samples[i] = f1(y)*f2(y)*complex(c,s)
+        i += 1
+    end
+    samples
+end
+
+function chirpchebsample(cfreq,chirp,center,radius,f1,f2,n::Integer,base=0,stride=1;T::Type=Complex{Float64})
+    samples = Vector{T}(undef,length(base:stride:n))
+    chirpchebsample!(cfreq,chirp,center,radius,f1,f2,samples,n,base,stride)
+end
+function chirpchebsample!(cfreq,chirp,center,radius,f1,f2,samples,n::Integer=length(samples)-1,base=0,stride=1)
+    p = real(eltype(samples))(pi)
+    i=1
+    for j in base:stride:n
+        x = cos(p*j/n)
+        y = center + radius*x
+        z = -x*(cfreq + x*chirp)
+        s,c = sincos(z)
+        samples[i] = f1(y)*f2(y)*complex(c,s)
+        i += 1
+    end
+    samples
+end
+
 #double Chebyshev degree
 function doublesample(f,oldsamples)
     N = length(oldsamples)-1
     T = eltype(oldsamples)
     newsamples = chebsample(f,2N,1,2;T=T)
+    samples = Vector{T}(undef,2N+1)
+    samples[1] = oldsamples[1]
+    for n in 1:N
+        samples[2n] = newsamples[n]
+        samples[2n+1] = oldsamples[n+1]
+    end
+    samples
+end
+
+function shifteddoublesample(center,radius,f1,f2,oldsamples)
+    N = length(oldsamples)-1
+    T = eltype(oldsamples)
+    newsamples = shiftedchebsample(center,radius,f1,f2,2N,1,2;T=T)
+    samples = Vector{T}(undef,2N+1)
+    samples[1] = oldsamples[1]
+    for n in 1:N
+        samples[2n] = newsamples[n]
+        samples[2n+1] = oldsamples[n+1]
+    end
+    samples
+end
+
+function chirpdoublesample(cfreq,chirp,center,radius,f1,f2,oldsamples)
+    N = length(oldsamples)-1
+    T = eltype(oldsamples)
+    newsamples = chirpchebsample(cfreq,chirp,center,radius,f1,f2,2N,1,2;T=T)
     samples = Vector{T}(undef,2N+1)
     samples[1] = oldsamples[1]
     for n in 1:N
@@ -184,6 +261,24 @@ function doublesample!(f,samples,N)
         samples[2n+1] = samples[n+1]
     end
     chebsample!(f,view(samples,2:2:2N),2N,1,2)
+    samples
+end
+
+function shifteddoublesample!(center,radius,f1,f2,samples,N)
+    T = eltype(samples)
+    for n in N:-1:1
+        samples[2n+1] = samples[n+1]
+    end
+    shiftedchebsample!(center,radius,f1,f2,view(samples,2:2:2N),2N,1,2)
+    samples
+end
+
+function tonedoublesample!(cfreq,center,radius,f1,f2,samples,N)
+    T = eltype(samples)
+    for n in N:-1:1
+        samples[2n+1] = samples[n+1]
+    end
+    tonechebsample!(cfreq,center,radius,f1,f2,view(samples,2:2:2N),2N,1,2)
     samples
 end
 
