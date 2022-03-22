@@ -12,6 +12,9 @@ include("Jets.jl")
 
 using LinearAlgebra, Scratch
 
+const AV = AbstractVector
+const AA = AbstractArray
+
 #=
 Filon-Clenshaw-Curtis quadrature for f(x) on [-1,1].
 Assuming chebfun is the coefficient vector of
@@ -20,14 +23,14 @@ returns f(x)*exp(im*w*x)*dx integrated over [-1,1]
 using degree N, and discrepancy between that and using reduced_degree(N).
 WARNING: N and baseN are assumed to be even.
 =#
-function fccquadUnit!(chebfun::AbstractVector,freq::Real,N::Integer,
-                      weightmethod::Symbol,weights::AbstractVector,weights_workspace::AbstractArray,
+function fccquadUnit!(chebfun::AV,freq::Real,N::Integer,
+                      weightmethod::Symbol,weights::AV,weights_workspace::AA,
                       baseN=reduced_degree(N))
     getweights!(weights,weights_workspace,length(weights)-1,freq,weightmethod)
     fcc_core(chebfun,weights,N,baseN)
 end    
 reduced_degree(N)=div(3N,4)
-function fcc_core(chebfun::AbstractVector,weights::Vector,N::Integer,baseN::Integer)
+function fcc_core(chebfun::AV,weights::Vector,N::Integer,baseN::Integer)
     @assert iseven(N) && iseven(baseN)
     a=chebfun
     i=weights
@@ -44,7 +47,7 @@ that compares the results of using two user-provided Chebyshev expansions
 instead of one Chebyshev expansion and its truncation.
 WARNING: N and baseN are assumed to be even.
 =#
-function fcc_alt(chebfun::AbstractVector,basefun::AbstractVector,
+function fcc_alt(chebfun::AV,basefun::AV,
                  weights::Vector,N::Integer,baseN::Integer)
     @assert iseven(N) && iseven(baseN)
     a,b,i=chebfun,basefun,weights
@@ -65,9 +68,9 @@ using degree N, and discrepancy between that and using degree baseN.
 Above, w=freq, c=center, r=radius, and v=doppler.
 WARNING: N and baseN are assumed to be even
 =#
-function fccquadSampled!(chebfun::AbstractVector,freq::Real,N::Integer,
+function fccquadSampled!(chebfun::AV,freq::Real,N::Integer,
                          center::Real,radius::Real,doppler::Real,
-                         weightmethod::Symbol,weights::AbstractVector,weights_workspace::AbstractArray,
+                         weightmethod::Symbol,weights::AV,weights_workspace::AA,
                          baseN::Integer=reduced_degree(N))
     w = freq*radius + doppler
     interval_transform(fccquadUnit!(chebfun,w,N,weightmethod,weights,weights_workspace,baseN)...,
@@ -82,7 +85,7 @@ end
 #Integrates f(x)*exp(im*w*x)*dx over [xmin,xmax] for each w in freqs
 #using degree N and discrepancy between that and using reduced_degree(N).
 #WARNING: log2N is assumed to be at least 3.
-function fccquadBatch(f::Function,freqs::AbstractArray,log2N::Integer;
+function fccquadBatch(f::Function,freqs::AA,log2N::Integer;
                       weightmethod::Symbol=:thomas,T::Type=Complex{Float64},
                       xmin::Real=-1.0,xmax::Real=1.0)
     xminT,xmaxT = real(T)(xmin),real(T)(xmax)
@@ -91,7 +94,7 @@ function fccquadBatch(f::Function,freqs::AbstractArray,log2N::Integer;
     output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T)
     fccquadBatch!(output,workspaces,center,radius,f,freqs,log2N,weightmethod),1+(1<<log2N)
 end
-function fccquad_alloc(freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
+function fccquad_alloc(freqs::AA,log2N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
     output=Matrix{T}(undef,2,length(freqs))
     N=1<<log2N
     samples = Vector{T}(undef,1+N)
@@ -100,8 +103,8 @@ function fccquad_alloc(freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,
     workspaces = (samples,fct_workspaces),(weights,weights_workspace)
     output,workspaces
 end
-function fccquadBatch!(output::AbstractArray,workspaces,center::Real,radius::Real,
-                       f::Function,freqs::AbstractArray,log2N::Integer,
+function fccquadBatch!(output::AA,workspaces,center::Real,radius::Real,
+                       f::Function,freqs::AA,log2N::Integer,
                        weightmethod::Symbol,baseN=reduced_degree(1<<log2N))
     N=1<<log2N
     g(x)=f(x*radius + center)
@@ -117,14 +120,15 @@ function fccquadBatch!(output::AbstractArray,workspaces,center::Real,radius::Rea
 end
 
 #Degree-adaptive FCC quadrature.
-function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},maxdegree=1<<20,
-                     xmin=-1,xmax=1,reltol::Real=1e-8,abstol::Real=0.0,
-                     weightmethod::Symbol=:thomas,vectornorm=LinearAlgebra.norm)
+function adaptdegree(f::Function,freqs::AA;T::Type=Complex{Float64},
+                     maxdegree::Real=1<<20,weightmethod::Symbol=:thomas,
+                     xmin::Real=-1,xmax::Real=1,reltol::Real=1e-8,abstol::Real=0.0,
+                     vectornorm=LinearAlgebra.norm)
     xminT,xmaxT = real(T)(xmin),real(T)(xmax)
     center = 0.5(xmaxT + xminT)
     radius = 0.5(xmaxT - xminT)
     g(x) = f(x*radius + center)
-    N = 16
+    N = 8
     samples=Fct.chebsample(g,N;T=T)
     output=Matrix{T}(undef,2,length(freqs))
     while true
@@ -145,12 +149,40 @@ function adaptdegree(f::Function,freqs::AbstractArray;T::Type=Complex{Float64},m
     output,N+1
 end
 
+function adaptdegree!(f::Function,freqs::AA,center::Real,radius::Real,
+                      samples::AV,ifft_in::AV,ifft_out::AV,ifft_work::AV,
+                      weightmethod::Symbol,weights::AA,weights_work::AA,output::AA,
+                      maxdegree::Real,reltol::Real,abstol::Real,vectornorm::Function)
+    g(x) = f(x*radius + center)
+    N = 8
+    Fct.chebsample!(g,samples,N)
+    success = false
+    base = Inf
+    while true
+        Fct.chebcoeffs!(view(samples,1:N+1),ifft_in,ifft_out,ifft_work)
+        for m in 1:length(freqs)
+            output[:,m] = collect(fccquadSampled!(ifft_out,freqs[m],N,center,radius,0.0,
+                                                  weightmethod,weights,weights_work))
+        end
+        base=vectornorm(view(output,1,:))
+        delta=vectornorm(view(output,2,:))
+        success = delta <= base * reltol || delta <= abstol
+        if success || N >= maxdegree
+            break
+        end
+        Fct.doublesample!(g,samples,N)
+        N<<=1
+    end
+    success,N+1,base
+end
+
 #FCC quadrature with tone removal.
 #Expects output,workspaces = fccquad_alloc(freqs,log2N,weightmethod,T).
 #WARNING: log2N is assumed to be at least 3.
-function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
+function tonequad!(output::AA,workspaces,center::Real,radius::Real,
                    prefactor::Function,oscillator::Function,
-                   freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
+                   freqs::AA,log2N::Integer,weightmethod::Symbol,T::Type,
+                   reltol::Real,abstol::Real,vectornorm::Function)
     N=1<<log2N
     g(y)=oscillator(y*radius + center)
     cfreq = Jets.phase_velocity(g(Jets.Jet(zero(real(T)),one(real(T)))))
@@ -158,63 +190,71 @@ function tonequad!(output::AbstractArray,workspaces,center::Real,radius::Real,
         s,c=sincos(cfreq*y)
         prefactor(y*radius + center) * g(y) * complex(c,-s)
     end
-    samples,fct_workspaces = workspaces[1]
-    a=Fct.chebcoeffs!(Fct.chebsample!(h,samples,N),fct_workspaces...)
-    weights,weights_workspace = workspaces[2]
-    for m in 1:length(freqs)
-        output[:,m] = collect(fccquadSampled!(a,freqs[m],N,center,radius,cfreq,
-                                              weightmethod,weights,weights_workspace))
-    end
-    output
+    fct_workspaces,weights_workspaces = workspaces
+    adaptdegree!(h,freqs,center,radius,fct_workspaces...,
+                 weightmethod,weights_workspaces...,
+                 output,N,reltol,abstol,vectornorm)
 end
 
 #FCC quadrature with chirp removal.
 #WARNING: log2N is assumed to be at least 3.
-function chirpquad!(output::AbstractArray,center::Real,radius::Real,
+function chirpquad!(output::AA,center::Real,radius::Real,
                     prefactor::Function,oscillator::Function,
-                    freqs::AbstractArray,log2N::Integer,weightmethod::Symbol,T::Type)
-    N=1<<log2N
+                    freqs::AA,maxdegree::Real,weightmethod::Symbol,T::Type,
+                    reltol::Real,abstol::Real,vectornorm::Function)
     g(x)=oscillator(x*radius + center)
     jet = g(Jets.Jet(zero(real(T)),one(real(T))))
     cfreq::Real = Jets.phase_velocity(jet)
     chirp::Real = Jets.phase_acceleration(jet)
     if Chirps.rates[end] < abs(chirp)
-        #give up, output garbage
-        output[:,1:length(freqs)-1] .= zero(eltype(output))
-        output[1,end] = one(eltype(output))
-        output[2,end] = Inf
-        return output
+        return false,1,Inf
     end    
     function h(y)
         s,c=sincos(y*(cfreq+y*chirp))
         prefactor(y*radius + center) * g(y) * complex(c,-s)
     end
-    a=Cheb.ChebSeries(Fct.chebcoeffs(Fct.chebsample(h,N;T=T)))
-
-    index=findfirst(x->abs(chirp)<=x,Chirps.rates)::Integer
-    faster=Chirps.rates[index]
-    b0 = Cheb.EvenChebSeries(Chirps.getchirp(index))
-    b=Cheb.dilate(b0,sqrt(abs(chirp)/faster))
-    if chirp < zero(chirp)
-        b = conj(b)
-    end
-    ab,ab2 = a*b, Cheb.truncate(a,reduced_degree(N))*b
-    deg = Cheb.degree(Cheb.autotruncate(ab))
-    deg2 = Cheb.degree(Cheb.autotruncate(ab2))
-    @assert deg >=2 && deg2 >= 2
-    deg1 = max(1, deg >> 2) << 2 #truncate to multiple of 4
-    deg2 = max(1, deg2 >> 2) << 2 #truncate to multiple of 4
-    deg3 = max(deg,deg2)
     
-    weights,workspace,deg4=weights_alloc(deg3,weightmethod,real(T))
-    for m in 1:length(freqs)
-        w = freqs[m]*radius + cfreq
-        getweights!(weights,workspace,deg4,w,weightmethod)
-        step1 = fcc_alt(ab.coeff,ab2.coeff,weights,deg1,deg2)
-        step2 = interval_transform(step1...,freqs[m],center,radius)
-        output[:,m] = collect(step2)
+    N=8
+    samples = Fct.chebsample(h,N;T=T)
+    success = false
+    base = Inf
+    while true    
+        a=Cheb.ChebSeries(Fct.chebcoeffs(samples))
+
+        index=findfirst(x->abs(chirp)<=x,Chirps.rates)::Integer
+        faster=Chirps.rates[index]
+        b0 = Cheb.EvenChebSeries(Chirps.getchirp(index))
+        b=Cheb.dilate(b0,sqrt(abs(chirp)/faster))
+        if chirp < zero(chirp)
+            b = conj(b)
+        end
+        ab,ab2 = a*b, Cheb.truncate(a,reduced_degree(N))*b
+        deg = Cheb.degree(Cheb.autotruncate(ab))
+        deg2 = Cheb.degree(Cheb.autotruncate(ab2))
+        @assert deg >=2 && deg2 >= 2
+        deg1 = max(1, deg >> 2) << 2 #truncate to multiple of 4
+        deg2 = max(1, deg2 >> 2) << 2 #truncate to multiple of 4
+        deg3 = max(deg,deg2)
+        
+        weights,workspace,deg4=weights_alloc(deg3,weightmethod,real(T))
+        for m in 1:length(freqs)
+            w = freqs[m]*radius + cfreq
+            getweights!(weights,workspace,deg4,w,weightmethod)
+            step1 = fcc_alt(ab.coeff,ab2.coeff,weights,deg1,deg2)
+            step2 = interval_transform(step1...,freqs[m],center,radius)
+            output[:,m] = collect(step2)
+        end
+        
+        base=vectornorm(view(output,1,:))
+        delta=vectornorm(view(output,2,:))
+        success = delta <= base * reltol || delta <= abstol
+        if success || N >= maxdegree
+            break
+        end
+        samples = Fct.doublesample(h,samples)
+        N<<=1
     end
-    output
+    success,N+1,base
 end
 
 #=
@@ -232,7 +272,7 @@ using a reduced Chebyshev interpolation degree.
 WARNING: oscillator(x) is assumed to be nonzero on [xmin,xmax].
 WARNING: log2degree is assumed to be at least 3.
 =#
-function fccquad(prefactor::Function,oscillator::Function,freqs::AbstractArray{<:Real};
+function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
                  xmin::Real=-1.0,xmax::Real=1.0,
                  reltol::Real=1e-8,abstol::Real=0.0,T::Type=Complex{Float64},
                  method::Symbol=:tone,weightmethod=:thomas,vectornorm=LinearAlgebra.norm,
@@ -265,25 +305,25 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AbstractArray{<
                        method,weightmethod,T,vectornorm)
 end
 #adds results in place to output
-function interval_adaptive!(output::AbstractArray,subintegrals::AbstractArray,workspaces,
+function interval_adaptive!(output::AA,subintegrals::AA,workspaces,
                             center::Real,radius::Real,
                             prefactor::Function,oscillator::Function,product::Function,
-                            freqs::AbstractArray,log2N::Integer,reltol::Real,abstol::Real,
+                            freqs::AA,log2N::Integer,reltol::Real,abstol::Real,
                             interpolation::Symbol,weightmethod::Symbol,T::Type,vectornorm)
     if interpolation == :chirp #Filon-Clenshaw-Curtis quadrature with linear chirp removal
-        chirpquad!(subintegrals,center,radius,
-                   prefactor,oscillator,freqs,log2N,weightmethod,T)
+        success,evals,base=chirpquad!(subintegrals,center,radius,
+                                      prefactor,oscillator,freqs,1<<log2N,weightmethod,T,
+                                      reltol,abstol,vectornorm)
     elseif interpolation == :tone #Filon-Clenshaw-Curtis quadrature with tone removal
-        tonequad!(subintegrals,workspaces,center,radius,
-                  prefactor,oscillator,freqs,log2N,weightmethod,T)
+        success,evals,base=tonequad!(subintegrals,workspaces,center,radius,
+                                     prefactor,oscillator,freqs,log2N,weightmethod,T,
+                                     reltol,abstol,vectornorm)
     else # :plain Filon-Clenshaw-Curtis quadrature
-        fccquadBatch!(subintegrals,workspaces,center,radius,
-                      product,freqs,log2N,weightmethod)
+        success,evals,base=adaptdegree!(product,freqs,center,radius,workspaces[1]...,
+                                        weightmethod,workspaces[2]...,
+                                        subintegrals,1<<log2N,reltol,abstol,vectornorm)
     end
-    base=vectornorm(view(subintegrals,1,:))
-    delta=vectornorm(view(subintegrals,2,:))
-    evals = isfinite(delta) ? 1+(1<<log2N) : 1
-    if delta <= base * reltol || delta  <= abstol
+    if success
         output .+= subintegrals
     else
         r = 0.25radius
@@ -315,30 +355,30 @@ using a reduced Chebyshev interpolation degree.
 WARNING: amplitude(x) and angle(x) are assumed to be real-valued.
 WARNING: log2degree is assumed to be at least 3.
 =#
-function fccquad_cc(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+function fccquad_cc(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(coscos!,amplitude,angle,freqs;kwargs...)
 end
 
 #Like fccquad_cc(), but integrates amplitude(x)*cos(angle(x))*sin(w*x)*dx
-function fccquad_cs(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+function fccquad_cs(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(cossin!,amplitude,angle,freqs;kwargs...)
 end
 
 #Like fccquad_cc(), but integrates amplitude(x)*sin(angle(x))*cos(w*x)*dx
-function fccquad_sc(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+function fccquad_sc(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(sincos!,amplitude,angle,freqs;kwargs...)
 end
 
 #Like fccquad_cc(), but integrates amplitude(x)*sin(angle(x))*sin(w*x)*dx
-function fccquad_ss(amplitude::Function,angle::Function,freqs::AbstractArray{<:Real};
+function fccquad_ss(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(sinsin!,amplitude,angle,freqs;kwargs...)
 end
 
-function fccquad_trig(transform!,amplitude::Function,angle::Function,freqs::AbstractArray;
+function fccquad_trig(transform!,amplitude::Function,angle::Function,freqs::AA;
                       T::Type=Float64,vectornorm=LinearAlgebra.norm,kwargs...)
     symmetricfreqs = Vector{eltype(freqs)}(undef,2length(freqs))
     for i in 1:length(freqs)

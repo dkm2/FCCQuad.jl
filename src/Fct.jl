@@ -177,4 +177,13 @@ function doublesample(f,oldsamples)
     samples
 end
 
+function doublesample!(f,samples,N)
+    T = eltype(samples)
+    for n in N:-1:1
+        samples[2n+1] = samples[n]
+    end
+    chebsample!(f,view(samples,2:2:2N),2N,1,2)
+    samples
+end
+
 end #module
