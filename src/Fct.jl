@@ -43,9 +43,9 @@ end
 function idct!(idct_in::AbstractVector, #input
                ifft_in::AbstractVector, #workspace: ifft input
                ifft_out::AbstractVector, #output is view(ifft_out,1:N+1)
-               ifft_work::AbstractVector) #workspace: ifft workspace
+               ifft_work::AbstractVector, #workspace: ifft workspace
+               n=length(idct_in)-1)
     idct_out = fct!(idct_in,ifft_in,ifft_out,ifft_work)
-    n = length(idct_in)-1
     T = eltype(ifft_work)
     r = real(T)(2)/n
     idct_out .*= r
@@ -142,8 +142,9 @@ end
 function chebcoeffs!(samples::AbstractVector,
                      ifft_in::AbstractVector,
                      ifft_out::AbstractVector,#output is view(ifft_out,1:length(samples))
-                     ifft_work::AbstractVector)
-    coeffs = idct!(samples,ifft_in,ifft_out,ifft_work)
+                     ifft_work::AbstractVector,
+                     n=length(samples)-1)
+    coeffs = idct!(samples,ifft_in,ifft_out,ifft_work,n)
     coeffs[1] *= 0.5
     coeffs[end] *= 0.5
     coeffs
@@ -180,7 +181,7 @@ end
 function doublesample!(f,samples,N)
     T = eltype(samples)
     for n in N:-1:1
-        samples[2n+1] = samples[n]
+        samples[2n+1] = samples[n+1]
     end
     chebsample!(f,view(samples,2:2:2N),2N,1,2)
     samples
