@@ -207,7 +207,7 @@ for each w in freqs, where c=center and r=radius.
 WARNING: arg(oscillator(x)) is assumed to be smooth at x=c.
 WARNING: log2N is assumed to be at least 3.
 =#
-function chirpquad!(output::AA,center::Real,radius::Real,
+function chirpquad!(failfast::Bool,output::AA,center::Real,radius::Real,
                     prefactor::Function,oscillator::Function,freqs::AA,
                     minlog2N::Integer,maxlog2N::Integer,weightmethod::Symbol,
                     T::Type,reltol::Real,abstol::Real,vectornorm::Function)
@@ -215,14 +215,15 @@ function chirpquad!(output::AA,center::Real,radius::Real,
     cfreq::Real = Jets.phase_velocity(jet)
     chirp::Real = Jets.phase_acceleration(jet)
     if Chirps.rates[end] < abs(chirp)
-        return false,1,Inf
-    end    
+        failfast && return false,1,zero(real(T))
+        chirp = zero(real(T))
+    end
     
     N = 1 << minlog2N
     maxN = 1 << maxlog2N
     samples = Fct.chirpchebsample(cfreq,chirp,center,radius,prefactor,oscillator,N;T=T)
     success = false
-    base = Inf
+    base = zero(real(T))
     while true
         a=Cheb.ChebSeries(Fct.chebcoeffs(samples))
 
@@ -342,7 +343,7 @@ function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,
                             method::Symbol,weightmethod::Symbol,T::Type,vectornorm::Function)
     @assert method in interval_methods
     if method == :chirp #degree-adaptive FCC quadrature with linear chirp removal
-        success,evals,base=chirpquad!(subintegrals,center,radius,
+        success,evals,base=chirpquad!(depth<maxdepth,subintegrals,center,radius,
                                       prefactor,oscillator,freqs,minlog2N,maxlog2N,
                                       weightmethod,T,reltol,abstol,vectornorm)
     elseif method == :tone #degree-adaptive FCC quadrature with tone removal
