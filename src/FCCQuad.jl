@@ -275,12 +275,22 @@ and row 2 the discrepancies between row 1 and estimates made
 using a reduced Chebyshev interpolation degree.
 
 WARNING: oscillator(x) is assumed to be nonzero on [xmin,xmax].
+
+The :chirp method uses precomputed ComplexF64 chirps 
+and, hence, only supports data type ComplexF64.
+The :degree and :nonadaptive methods typically require high degrees 
+and, hence, require typically higher precision than ComplexF32.
 =#
 const interval_methods = (:plain, :tone, :chirp)
 const all_methods = (interval_methods..., :degree, :nonadaptive)
+const supported_types = Dict(
+    (m=>(Complex{T} for T in (Float32,Float64,BigFloat)) for m in (:plain, :tone))...,
+    (m=>(Complex{T} for T in (Float64,BigFloat)) for m in (:degree, :nonadaptive))...,
+    :chirp=>(Complex{Float64},))
+const default_reltol = Dict(Float32=>1e-6,Float64=>1e-8,BigFloat=>1e-39)
 function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
-                 xmin::Real=-1.0,xmax::Real=1.0,
-                 reltol::Real=1e-8,abstol::Real=0.0,T::Type=Complex{Float64},
+                 T::Type=Complex{Float64},xmin::Real=-one(real(T)),xmax::Real=one(real(T)),
+                 reltol::Real=default_reltol[real(T)],abstol::Real=zero(real(T)),
                  method::Symbol=:tone,weightmethod=:thomas,vectornorm=LinearAlgebra.norm,
                  minlog2degree::Integer=3,
                  localmaxlog2degree::Integer=6,
@@ -291,6 +301,7 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
     @assert 3 <= minlog2degree <= globalmaxlog2degree <= 62
     @assert 3 <= nonadaptivelog2degree <= 62
     @assert method in all_methods
+    @assert T in supported_types[method]
     
     if method == :nonadaptive
         return fccquadBatch(prefactor,oscillator,freqs,nonadaptivelog2degree;
