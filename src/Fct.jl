@@ -18,11 +18,10 @@ end
 function fct!(dct_in::AbstractVector, #input
               ifft_in::AbstractVector, #workspace: ifft input
               ifft_out::AbstractVector, #output is view(ifft_out,1:N+1)
-              ifft_work::AbstractVector) #workspace: ifft workspace
-    N = length(dct_in)-1
-    twoN = 2N
+              ifft_work::AbstractVector, #workspace: ifft workspace
+              N=length(dct_in)-1)
     ifft_in[1] = dct_in[1]
-    i,j = 2,twoN
+    i,j = 2,2N
     while i<=N
         z = dct_in[i]
         ifft_in[i] = z
@@ -31,7 +30,7 @@ function fct!(dct_in::AbstractVector, #input
         j-=1
     end
     ifft_in[N+1] = dct_in[N+1]
-    ifft!(ifft_in,ifft_out,ifft_work)
+    ifft!(ifft_in,ifft_out,ifft_work,2N)
     dct_out = view(ifft_out,1:N+1)
     dct_out .*= 0.5
 end
@@ -45,7 +44,7 @@ function idct!(idct_in::AbstractVector, #input
                ifft_out::AbstractVector, #output is view(ifft_out,1:N+1)
                ifft_work::AbstractVector, #workspace: ifft workspace
                n=length(idct_in)-1)
-    idct_out = fct!(idct_in,ifft_in,ifft_out,ifft_work)
+    idct_out = fct!(idct_in,ifft_in,ifft_out,ifft_work,n)
     T = eltype(ifft_work)
     r = real(T)(2)/n
     idct_out .*= r
@@ -62,8 +61,8 @@ function ifft(x::AbstractVector,T::Type=Complex{Float64})
     z=Vector{T}(undef,N) #work space
     ifft!(x,y,z)
 end
-function ifft!(input::AbstractVector,output::AbstractVector,workspace::AbstractVector)
-    N=length(input)
+function ifft!(input::AbstractVector,output::AbstractVector,workspace::AbstractVector,
+               N=length(input))
     T=eltype(workspace)
     key = N=>T
     if key in keys(ifft_cache)
