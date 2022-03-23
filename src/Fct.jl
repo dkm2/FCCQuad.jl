@@ -256,7 +256,6 @@ function chirpdoublesample(cfreq,chirp,center,radius,f1,f2,oldsamples)
 end
 
 function doublesample!(f,samples,N)
-    T = eltype(samples)
     for n in N:-1:1
         samples[2n+1] = samples[n+1]
     end
@@ -265,7 +264,6 @@ function doublesample!(f,samples,N)
 end
 
 function shifteddoublesample!(center,radius,f1,f2,samples,N)
-    T = eltype(samples)
     for n in N:-1:1
         samples[2n+1] = samples[n+1]
     end
@@ -274,7 +272,6 @@ function shifteddoublesample!(center,radius,f1,f2,samples,N)
 end
 
 function tonedoublesample!(cfreq,center,radius,f1,f2,samples,N)
-    T = eltype(samples)
     for n in N:-1:1
         samples[2n+1] = samples[n+1]
     end
