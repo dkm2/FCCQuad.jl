@@ -87,7 +87,7 @@ end
             @test pass
         end
     end
-    println("Testing Chebyshev weights computations:")
+    println("Testing Chebyshev weights:")
     for freq in [0,-1e-9,1e-6,-1e-3,1e-2,-1e-1,1,2,3,4,5,-99.5,200]
         println("\ttesting angular frequency $freq...")
         checkweights(100,freq)

@@ -292,6 +292,7 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
                  T::Type=Complex{Float64},xmin::Real=-one(real(T)),xmax::Real=one(real(T)),
                  reltol::Real=default_reltol[real(T)],abstol::Real=zero(real(T)),
                  method::Symbol=:tone,weightmethod=:thomas,vectornorm=LinearAlgebra.norm,
+                 branching::Integer=4,maxdepth::Integer=10,
                  minlog2degree::Integer=3,
                  localmaxlog2degree::Integer=6,
                  nonadaptivelog2degree::Integer=10,
@@ -302,6 +303,7 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
     @assert 3 <= nonadaptivelog2degree <= 62
     @assert method in all_methods
     @assert T in supported_types[method]
+    @assert 2 <= branching
     
     if method == :nonadaptive
         return fccquadBatch(prefactor,oscillator,freqs,nonadaptivelog2degree;
@@ -328,13 +330,14 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
         subintegrals,workspaces = fccquad_alloc(freqs,localmaxlog2degree,weightmethod,T)
     end
     interval_adaptive!(output,subintegrals,workspaces,center,radius,
-                       prefactor,oscillator,freqs,
+                       prefactor,oscillator,freqs,branching,maxdepth,0,
                        minlog2degree,localmaxlog2degree,reltol,abstol,
                        method,weightmethod,T,vectornorm)
 end
 #adds results in place to output
 function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,radius::Real,
                             prefactor::Function,oscillator::Function,freqs::AA,
+                            branching::Integer,maxdepth::Integer,depth::Integer,
                             minlog2N::Integer,maxlog2N::Integer,reltol::Real,abstol::Real,
                             method::Symbol,weightmethod::Symbol,T::Type,vectornorm::Function)
     @assert method in interval_methods
@@ -352,17 +355,17 @@ function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,
                                         weightmethod,workspaces,subintegrals,
                                         minlog2N,maxlog2N,reltol,abstol,vectornorm)
     end
-    if success
+    if success || depth >= maxdepth
         output .+= subintegrals
     else
-        r = 0.25radius
-        abstol = 0.25max(abstol, base * reltol)
-        for t in -3:2:3
+        shrink = inv(real(T)(branching))
+        r = shrink*radius
+        abstol = shrink*max(abstol, base*reltol)
+        for t in 1-branching:2:branching-1
             evals += interval_adaptive!(output,subintegrals,workspaces,r*t+center,r,
-                                        prefactor,oscillator,
-                                        freqs,minlog2N,maxlog2N,reltol,abstol,
-                                        method,weightmethod,T,vectornorm
-                                        )[2]
+                                        prefactor,oscillator,freqs,branching,maxdepth,depth+1,
+                                        minlog2N,maxlog2N,reltol,abstol,
+                                        method,weightmethod,T,vectornorm)[2]
         end
     end
     output,evals
