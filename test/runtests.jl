@@ -1,6 +1,46 @@
 using FCCQuad: Fct, Cheb, getweights, fccquad_cc, fccquad_cs, fccquad_sc, fccquad_ss, all_methods, supported_types, interval_methods
 using QuadGK, Test
 
+#=
+Integral of cos(13cos(2x))*52sin(x)cos(x)dx from 0 to 17pi/4
+  == integral of cos(u)*du from 0 to 13 == sin(13).
+Integral of sin(13cos(2x))*52sin(x)cos(x)dx from 0 to 17pi/4
+  == integral of sin(u)*du from 0 to 13 == 1-cos(13).
+=#
+@testset "analytic integrals" begin
+    println("Integral of (cos or sin)(13cos(2x))*52sin(x)cos(x)dx from 0 to 17pi/4:")
+    angle(x)=13cos(2x)
+    ampcos(x)=52cos(x)
+    ampsin(x)=52sin(x)
+    println("\tmethod \tdata type \tintegrand evaluation counts")
+    for mthd in all_methods
+        for T in supported_types[mthd]
+            print("\t$mthd \t$T \t")
+            R=real(T)
+            freqs=[one(R)]
+            kwargs=(:xmin=>zero(R),:xmax=>17*R(pi)/4,:method=>mthd,:T=>R)
+            
+            exact=sin(R(13))
+            result=fccquad_cc(ampsin,angle,freqs;kwargs...)
+            print("$(result[2]) \t")
+            @test isapprox(result[1][1,1],exact)
+            
+            result=fccquad_cs(ampcos,angle,freqs;kwargs...)
+            print("$(result[2]) \t")
+            @test isapprox(result[1][1,1],exact)
+            
+            exact=one(R)-cos(R(13))
+            result=fccquad_sc(ampsin,angle,freqs;kwargs...)
+            print("$(result[2]) \t")
+            @test isapprox(result[1][1,1],exact)
+
+            result=fccquad_ss(ampcos,angle,freqs;kwargs...)
+            println("$(result[2])")
+            @test isapprox(result[1][1,1],exact)
+        end
+    end
+end
+
 #slow type I DCT (for testing purposes):
 #(dct(x_0,...,x_N))_n = sum_{0<=m<=N}x_m*cos(pi*m*n/N)
 #with 1/2 weight given to first and last summands.
@@ -87,36 +127,9 @@ end
             @test pass
         end
     end
-    println("Testing Chebyshev weights:")
+    println("Testing Chebyshev weights (0<=n<=100):")
     for freq in [0,-1e-9,1e-6,-1e-3,1e-2,-1e-1,1,2,3,4,5,-99.5,200]
         println("\ttesting angular frequency $freq...")
         checkweights(100,freq)
-    end
-end
-
-#=
-Integral of cos(13cos(2x))*52sin(x)cos(x)dx from 0 to 17pi/4
-  == integral of cos(u)*du from 0 to 13 == sin(13).
-Integral of sin(13cos(2x))*52sin(x)cos(x)dx from 0 to 17pi/4
-  == integral of sin(u)*du from 0 to 13 == 1-cos(13).
-=#
-@testset "integral of (cos or sin)(13cos(2x))*52sin(x)cos(x)dx from 0 to 17pi/4" begin
-    println("Integral of (cos or sin)(13cos(2x))*52sin(x)cos(x)dx from 0 to 17pi/4:")
-    angle(x)=13cos(2x)
-    ampcos(x)=52cos(x)
-    ampsin(x)=52sin(x)
-    for mthd in all_methods
-        for T in supported_types[mthd]
-            println("\tTesting method $mthd and data type $T...")
-            R=real(T)
-            freqs=[one(R)]
-            kwargs=(:xmin=>zero(R),:xmax=>17*R(pi)/4,:method=>mthd,:T=>R)
-            exact=sin(R(13))
-            @test isapprox(fccquad_cc(ampsin,angle,freqs;kwargs...)[1][1,1],exact)
-            @test isapprox(fccquad_cs(ampcos,angle,freqs;kwargs...)[1][1,1],exact)
-            exact=one(R)-cos(R(13))
-            @test isapprox(fccquad_sc(ampsin,angle,freqs;kwargs...)[1][1,1],exact)
-            @test isapprox(fccquad_ss(ampcos,angle,freqs;kwargs...)[1][1,1],exact)
-        end
     end
 end

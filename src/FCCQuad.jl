@@ -122,30 +122,46 @@ end
 
 #=
 Degree-adaptive FCC quadrature implementation.
-Expects output,workspaces = fccquad_alloc(freqs,maxlog2degree,weightmethod,T).
 Integrates f1(c+rx)*f2(c+rx)*exp(im*(w*(c+rx)+v*rx))*d(c+rx) over [-1,1] 
 for each w in freqs, where c=center, r=radius, and v=doppler.
+
+Expects output,workspaces = fccquad_alloc(freqs,maxlog2degree,weightmethod,T)
+OR workspaces==nothing and size(output)==(2,length(freqs)).
+
 WARNING: log2N is assumed to be at least 3.
 =#
 function adaptdegree!(f1::Function,f2::Function,freqs::AA,
                       center::Real,radius::Real,doppler::Real,
-                      weightmethod::Symbol,workspaces,output::AA,
+                      weightmethod::Symbol,output::AA,workspaces,
                       minlog2degree::Integer,maxlog2degree::Integer,
                       reltol::Real,abstol::Real,vectornorm::Function)
-    samples,fct_workspaces = workspaces[1]
-    ifft_in,ifft_out,ifft_work = fct_workspaces
-    weights,weights_work = workspaces[2]
-
     N = 1 << minlog2degree
-    maxN = 1 << maxlog2degree
-    Fct.shiftedchebsample!(center,radius,f1,f2,samples,N)
+    T = eltype(output)
+    if workspaces == nothing
+        samples = Fct.shiftedchebsample(center,radius,f1,f2,N;T=T)
+    else
+        samples,fct_workspaces = workspaces[1]
+        ifft_in,ifft_out,ifft_work = fct_workspaces
+        weights_workspaces = workspaces[2]
+        Fct.shiftedchebsample!(center,radius,f1,f2,samples,N)
+    end
+    
+    R = real(T)
+    base = zero(R)
     success = false
-    base = 0
+    maxN = 1 << maxlog2degree
     while true
-        Fct.chebcoeffs!(samples,ifft_in,ifft_out,ifft_work,N)
+        if workspaces == nothing
+            ifft_out=Fct.chebcoeffs(samples)
+        else
+            Fct.chebcoeffs!(samples,ifft_in,ifft_out,ifft_work,N)
+        end
         for m in 1:length(freqs)
+            if workspaces == nothing
+                weights_workspaces = weights_alloc(N,weightmethod,R)[1:2]
+            end
             output[:,m] = collect(fccquadSampled!(ifft_out,freqs[m],N,center,radius,doppler,
-                                                  weightmethod,weights,weights_work))
+                                                  weightmethod,weights_workspaces...))
         end
         base=vectornorm(view(output,1,:))
         delta=vectornorm(view(output,2,:))
@@ -153,7 +169,11 @@ function adaptdegree!(f1::Function,f2::Function,freqs::AA,
         if success || N >= maxN
             break
         end
-        Fct.shifteddoublesample!(center,radius,f1,f2,samples,N)
+        if workspaces == nothing
+            samples = Fct.shifteddoublesample(center,radius,f1,f2,samples)
+        else
+            Fct.shifteddoublesample!(center,radius,f1,f2,samples,N)
+        end
         N<<=1
     end
     success,N+1,base
@@ -315,16 +335,16 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
     center = real(T)(0.5)*(xmaxT + xminT)
     radius = real(T)(0.5)*(xmaxT - xminT)
     if method == :degree
-        output,workspaces = fccquad_alloc(freqs,globalmaxlog2degree,weightmethod,T)
+        output=Matrix{T}(undef,2,length(freqs))
         success,evals,base=adaptdegree!(prefactor,oscillator,freqs,
                                         center,radius,zero(real(T)),
-                                        weightmethod,workspaces,output,
+                                        weightmethod,output,nothing,
                                         minlog2degree,globalmaxlog2degree,
                                         reltol,abstol,vectornorm)
         return output,evals
     end
-    
-    output=zeros(T,2,length(freqs))
+
+    output=zeros(T,2,length(freqs)) #initialize accumulator to zero
     if method == :chirp
         subintegrals,workspaces = Matrix{T}(undef,2,length(freqs)),nothing
     else # :plain, :tone
@@ -353,7 +373,7 @@ function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,
                                      T,reltol,abstol,vectornorm)
     elseif method == :plain #degree-adaptive FCC quadrature
         success,evals,base=adaptdegree!(prefactor,oscillator,freqs,center,radius,zero(real(T)),
-                                        weightmethod,workspaces,subintegrals,
+                                        weightmethod,subintegrals,workspaces,
                                         minlog2N,maxlog2N,reltol,abstol,vectornorm)
     end
     if success || depth >= maxdepth
