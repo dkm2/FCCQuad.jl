@@ -96,15 +96,6 @@ function fccquadBatch(f1::Function,f2::Function,freqs::AA,log2N::Integer;
     fccquadBatch!(output,workspaces,center,radius,f1,f2,freqs,log2N,weightmethod)
     output,1+(1<<log2N)
 end
-function fccquad_alloc(freqs::AA,log2N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
-    output=Matrix{T}(undef,2,length(freqs))
-    N=1<<log2N
-    samples = Vector{T}(undef,1+N)
-    fct_workspaces = Fct.fct_alloc(samples,T)
-    weights,weights_workspace = weights_alloc(N,weightmethod,real(T))[1:2]
-    workspaces = (samples,fct_workspaces),(weights,weights_workspace)
-    output,workspaces
-end
 function fccquadBatch!(output::AA,workspaces,center::Real,radius::Real,
                        f1::Function,f2::Function,freqs::AA,log2N::Integer,
                        weightmethod::Symbol,baseN=reduced_degree(1<<log2N))
@@ -118,6 +109,15 @@ function fccquadBatch!(output::AA,workspaces,center::Real,radius::Real,
                                               weightmethod,weights,weights_workspace,baseN))
     end
     output
+end
+function fccquad_alloc(freqs::AA,log2N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
+    output=Matrix{T}(undef,2,length(freqs))
+    N=1<<log2N
+    output,fccquad_workspaces(N,weightmethod,T)
+end
+function fccquad_workspaces(N::Integer,weightmethod::Symbol,T::Type=Complex{Float64})
+    samples = Vector{T}(undef,1+N)
+    (samples,Fct.fct_alloc(samples,T)),weights_alloc(N,weightmethod,real(T))[1:2]
 end
 
 #=
@@ -230,24 +230,31 @@ WARNING: log2N is assumed to be at least 3.
 function chirpquad!(failfast::Bool,output::AA,center::Real,radius::Real,
                     prefactor::Function,oscillator::Function,freqs::AA,
                     minlog2N::Integer,maxlog2N::Integer,weightmethod::Symbol,
-                    T::Type,reltol::Real,abstol::Real,vectornorm::Function)
+                    T::Type,reltol::Real,abstol::Real,vectornorm::Function,
+                    maxchirp::Integer)
+    N = 1 << minlog2N
+    maxN = 1 << maxlog2N
+    R = real(T)
+
     jet = oscillator(Jets.Jet(center,radius))
     cfreq::Real = Jets.phase_velocity(jet)
     chirp::Real = Jets.phase_acceleration(jet)
-    if Chirps.rates[end] < abs(chirp)
-        failfast && return false,1,zero(real(T))
-        chirp = zero(real(T))
+    if Chirps.rates[maxchirp] < abs(chirp)
+        failfast && return false,1,zero(R)
+        workspaces=fccquad_workspaces(maxN,weightmethod,T)
+        return tonequad!(output,workspaces,center,radius,
+                         prefactor,oscillator,freqs,
+                         minlog2N,maxlog2N,weightmethod,
+                         T,reltol,abstol,vectornorm)
     end
     
-    N = 1 << minlog2N
-    maxN = 1 << maxlog2N
     samples = Fct.chirpchebsample(cfreq,chirp,center,radius,prefactor,oscillator,N;T=T)
     success = false
-    base = zero(real(T))
+    base = zero(R)
     while true
         a=Cheb.ChebSeries(Fct.chebcoeffs(samples))
 
-        index=findfirst(x->abs(chirp)<=x,Chirps.rates)::Integer
+        index=findfirst(x->abs(chirp)<=x,view(Chirps.rates,1:maxchirp))::Integer
         faster=Chirps.rates[index]
         b0 = Cheb.EvenChebSeries(Chirps.getchirp(index))
         b=Cheb.dilate(b0,sqrt(abs(chirp)/faster))
@@ -262,7 +269,7 @@ function chirpquad!(failfast::Bool,output::AA,center::Real,radius::Real,
         deg2 = max(1, deg2 >> 2) << 2 #truncate to multiple of 4
         deg3 = max(deg,deg2)
         
-        weights,workspace,deg4=weights_alloc(deg3,weightmethod,real(T))
+        weights,workspace,deg4=weights_alloc(deg3,weightmethod,R)
         for m in 1:length(freqs)
             w = freqs[m]*radius + cfreq
             getweights!(weights,workspace,deg4,w,weightmethod)
@@ -313,7 +320,7 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
                  T::Type=Complex{Float64},xmin::Real=-one(real(T)),xmax::Real=one(real(T)),
                  reltol::Real=default_reltol[real(T)],abstol::Real=zero(real(T)),
                  method::Symbol=:tone,weightmethod=:thomas,vectornorm=LinearAlgebra.norm,
-                 branching::Integer=4,maxdepth::Integer=10,
+                 branching::Integer=4,maxdepth::Integer=10,maxchirp::Integer=6,
                  minlog2degree::Integer=3,
                  localmaxlog2degree::Integer=6,
                  nonadaptivelog2degree::Integer=10,
@@ -353,19 +360,20 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
     interval_adaptive!(output,subintegrals,workspaces,center,radius,
                        prefactor,oscillator,freqs,branching,maxdepth,0,
                        minlog2degree,localmaxlog2degree,reltol,abstol,
-                       method,weightmethod,T,vectornorm)
+                       method,weightmethod,T,vectornorm,maxchirp)
 end
 #adds results in place to output
 function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,radius::Real,
                             prefactor::Function,oscillator::Function,freqs::AA,
                             branching::Integer,maxdepth::Integer,depth::Integer,
                             minlog2N::Integer,maxlog2N::Integer,reltol::Real,abstol::Real,
-                            method::Symbol,weightmethod::Symbol,T::Type,vectornorm::Function)
+                            method::Symbol,weightmethod::Symbol,T::Type,vectornorm::Function,
+                            maxchirp::Integer)
     @assert method in interval_methods
     if method == :chirp #degree-adaptive FCC quadrature with linear chirp removal
         success,evals,base=chirpquad!(depth<maxdepth,subintegrals,center,radius,
                                       prefactor,oscillator,freqs,minlog2N,maxlog2N,
-                                      weightmethod,T,reltol,abstol,vectornorm)
+                                      weightmethod,T,reltol,abstol,vectornorm,maxchirp)
     elseif method == :tone #degree-adaptive FCC quadrature with tone removal
         success,evals,base=tonequad!(subintegrals,workspaces,center,radius,
                                      prefactor,oscillator,freqs,
@@ -386,7 +394,7 @@ function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,
             evals += interval_adaptive!(output,subintegrals,workspaces,r*t+center,r,
                                         prefactor,oscillator,freqs,branching,maxdepth,depth+1,
                                         minlog2N,maxlog2N,reltol,abstol,
-                                        method,weightmethod,T,vectornorm)[2]
+                                        method,weightmethod,T,vectornorm,maxchirp)[2]
         end
     end
     output,evals
