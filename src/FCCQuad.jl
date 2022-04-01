@@ -332,6 +332,7 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
     @assert method in all_methods
     @assert T in supported_types[method]
     @assert 2 <= branching
+    @assert 1 <= maxchirp <= length(Chirps.rates)
     
     if method == :nonadaptive
         return fccquadBatch(prefactor,oscillator,freqs,nonadaptivelog2degree;
