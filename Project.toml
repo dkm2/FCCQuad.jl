@@ -1,7 +1,7 @@
 name = "FCCQuad"
 uuid = "7e58c0cd-f370-453c-9274-eb333b7aace6"
 authors = ["David Milovich <david.milovich@welkinsciences.com>"]
-version = "0.4.11"
+version = "0.4.12"
 
 [deps]
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"

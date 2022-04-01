@@ -36,10 +36,10 @@ function store(file)
     h=h5open(file,"w") #overwrite
     for i in 1:L
         N = degrees[i]
-        a = rates[i]
-        s = Fct.chebsample(x->exp(a*im*x^2),2N)
+        a = BigFloat(rates[i])
+        s = Fct.chebsample(x->exp(a*im*x^2),2N,T=Complex{BigFloat})
         g = getchirp(i)
-        h[string(N)] = g[:] = Fct.chebcoeffs(s)[1:2:N+1]
+        h[string(N)] = g[:] = Complex{Float64}.(Fct.chebcoeffs(s)[1:2:N+1])
     end
     close(h)
 end
