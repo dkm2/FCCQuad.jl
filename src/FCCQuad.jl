@@ -192,6 +192,9 @@ function tonequad!(output::AA,workspaces,center::Real,radius::Real,
                    minlog2N::Integer,maxlog2N::Integer,weightmethod::Symbol,
                    T::Type,reltol::Real,abstol::Real,vectornorm::Function)
     cfreq = Jets.phase_velocity(oscillator(Jets.Jet(center,radius)))
+    if !isfinite(cfreq)
+        cfreq = zero(cfreq)
+    end
     
     samples,fct_workspaces = workspaces[1]
     ifft_in,ifft_out,ifft_work = fct_workspaces
@@ -238,7 +241,13 @@ function chirpquad!(failfast::Bool,output::AA,center::Real,radius::Real,
 
     jet = oscillator(Jets.Jet(center,radius))
     cfreq::Real = Jets.phase_velocity(jet)
+    if !isfinite(cfreq)
+        cfreq = zero(cfreq)
+    end
     chirp::Real = Jets.phase_acceleration(jet)
+    if !isfinite(chirp)
+        chirp = zero(chirp)
+    end
     if Chirps.rates[maxchirp] < abs(chirp)
         failfast && return false,1,zero(R)
         workspaces=fccquad_workspaces(maxN,weightmethod,T)
