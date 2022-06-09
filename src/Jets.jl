@@ -33,8 +33,6 @@ end
 convert(::Type{Jet},x::Standard)=Jet(x)
 convert(::Type{Jet{T}},x::Standard) where T<:Number = Jet(convert(T,x)) 
 convert(T::Type{<:Standard},x::Jet)=convert(T,x.a)
-convert(T::Type{<:Standard},x::Array{Jet})=broadcast(y->convert(T,y),x)
-convert(T::Type{Jet},x::Array{<:Standard})=broadcast(y->convert(T,y),x)
 
 promote_rule(::Type{Jet{T1}}, ::Type{T2}) where {T1<:Number,T2<:Standard} = Jet{promote_type(T1,T2)}
 promote_rule(::Type{Jet{T1}}, ::Type{Jet{T2}}) where {T1<:Number,T2<:Number} = Jet{promote_type(T1,T2)}
@@ -72,7 +70,7 @@ function (*)(x::Standard,y::Jet)
 end
 
 function (*)(y::Jet,x::Standard)
-  Jet(x*y.a,x*y.b,x*y.c)
+  Jet(y.a*x,y.b*x,y.c*x)
 end
 
 function (/)(x::Jet,y::Standard)

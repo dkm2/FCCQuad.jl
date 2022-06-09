@@ -299,25 +299,7 @@ function chirpquad!(failfast::Bool,output::AA,center::Real,radius::Real,
     success,N+1,base
 end
 
-#=
-Integrates f(x)*exp(im*w*x)*dx over [xmin,xmax] for all w in freqs
-where f(x)=prefactor(x)*oscillator(x), 
-using a variant of Filon-Chenshaw-Curtis quadrature.
-The method keyword argument specifies the variant.
-
-Outputs a tuple (results, function_evaluation_count) where results
-is a 2xL complex matrix, where L=length(freqs), 
-with row 1 containing the estimated integrals
-and row 2 the discrepancies between row 1 and estimates made
-using a reduced Chebyshev interpolation degree.
-
-WARNING: oscillator(x) is assumed to be nonzero on [xmin,xmax].
-
-The :chirp method uses precomputed ComplexF64 chirps 
-and, hence, only supports data type ComplexF64.
-The :degree and :nonadaptive methods typically require high degrees 
-and, hence, require typically higher precision than ComplexF32.
-=#
+#constants for fccquad()
 const interval_methods = (:plain, :tone, :chirp)
 const all_methods = (interval_methods..., :degree, :nonadaptive)
 const supported_types = Dict(
@@ -325,16 +307,91 @@ const supported_types = Dict(
     (m=>(Complex{T} for T in (Float64,BigFloat)) for m in (:degree, :nonadaptive))...,
     :chirp=>(Complex{Float64},))
 const default_reltol = Dict(Float32=>1e-6,Float64=>1e-8,BigFloat=>1e-39)
+const weightmethod=:thomas
+
+"""
+    ```
+    fccquad(prefactor::Function, 
+            oscillator::Function, 
+            freqs::AbstractArray{<:Real}; 
+            kwargs...)
+    ```
+
+Integrates `prefactor(x)*oscillator(x)*exp(im*w*x)*dx` 
+over a finite interval, for all `w` in `freqs`,
+using a variant of Filon-Chenshaw-Curtis (FCC) quadrature.
+
+Use the `xmin` and `xmax` keyword arguments to specify 
+a finite domain of integration [xmin,xmax]. Default: [-1,1].
+
+Required: `oscillator` should be nonzero on [xmin,xmax].
+
+Recommended: `prefactor` should not be highly oscillatory on [xmin,xmax].
+The amplitude of `oscillator` and phase velocity of `oscillator`
+should also not be highly oscillatory.
+
+Outputs a tuple `(results, function_evaluation_count)` where `results`
+is a 2xL complex matrix, where `L=length(freqs)`, 
+with row 1 containing the estimated integrals
+and row 2 the discrepancies between row 1 and estimates made
+using a reduced Chebyshev polynomial interpolation degree.
+
+The `reltol` and `abstol` keyword arguments specify 
+the relative and absolute error goals used by the adaptive methods.
+Success means satisfying both goals.
+Defaults: `abstol=0` and `reltol=default_reltol[real(T)]`.
+
+The `method` keyword argument specifies the FCC variant to be used.
+`FCQuad.all_methods` lists the supported methods.
+The default is `:tone`.
+
+* Method `:nonadaptive` is FCC quadrature with the base-2 logarithm of
+  the interpolation degree specified by `nonadaptivelog2degree` (default: 10).
+
+* Method `:degree` is a degree-adaptive FCC quadrature with the base-2 logarithm of
+  the interpolation degree starting at `minlog2degree` (default: 3)
+  and adaptively increasing but not beyond `globalmaxlog2degree` (default: 20).
+
+* Methods `:plain`, `:tone`, and `:chirp` are 
+  hybrid interval-adaptive degree-adaptive FCC quadrature variants
+  with the base-2 logarithm of the per-subinterval interpolation degree
+  starting at `minlog2degree` (default: 3) and adaptively increasing
+  but not beyond `localmaxlog2degree` (default: 6).
+  If a subinterval's accuracy goals are not met even with the maximum degree,
+  then the subinterval is divided into `branching`-many equal subintervals.
+  (default: 4).
+
+* Methods `:tone` and `:chirp` use automatic differentiation
+  to factor out a per-subinterval tone or chirp (respectively) from `oscillator`
+  before the polynomial interpolation step. To use these methods,
+  the function `oscillator` must be generic enough to take input
+  of type `FCCQuad.Jets.Jet{real(T)}`, which is a subtype of `Number`.
+
+The `T` keyword argument specifies the working complex scalar datatype,.
+(Default: `Complex{Float64}`.)
+`FCQuad.supported_types` lists which datatypes are supported
+for which methods.
+The functions `prefactor` and `oscillator` should output
+something of type `T` or `real(T)` when the input has type `real(T)`.
+
+The adaptive methods use stopping rules based on vectors of
+discrepancies involving all frequencies in `freqs`.
+The `vectornorm` keyword argument specifies the norm used
+to compare vectors. 
+Default: `LinearAlgebra.norm` (Euclidean norm).
+
+See also: `fccquad_cc`, `fccquad_cs`, `fccquad_sc`, `fccquad_ss`.
+"""
 function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
                  T::Type=Complex{Float64},xmin::Real=-one(real(T)),xmax::Real=one(real(T)),
                  reltol::Real=default_reltol[real(T)],abstol::Real=zero(real(T)),
-                 method::Symbol=:tone,weightmethod=:thomas,vectornorm=LinearAlgebra.norm,
+                 method::Symbol=:tone,vectornorm=LinearAlgebra.norm,
                  branching::Integer=4,maxdepth::Integer=10,maxchirp::Integer=6,
                  minlog2degree::Integer=3,
                  localmaxlog2degree::Integer=6,
                  nonadaptivelog2degree::Integer=10,
                  globalmaxlog2degree::Integer=20)
-    @assert xmin < xmax
+    @assert xmin < xmax && isfinite(xmin) && isfinite(xmax)
     @assert 3 <= minlog2degree <= localmaxlog2degree <= 62
     @assert 3 <= minlog2degree <= globalmaxlog2degree <= 62
     @assert 3 <= nonadaptivelog2degree <= 62
@@ -342,6 +399,7 @@ function fccquad(prefactor::Function,oscillator::Function,freqs::AA{<:Real};
     @assert T in supported_types[method]
     @assert 2 <= branching
     @assert 1 <= maxchirp <= length(Chirps.rates)
+
     
     if method == :nonadaptive
         return fccquadBatch(prefactor,oscillator,freqs,nonadaptivelog2degree;
@@ -411,11 +469,25 @@ function interval_adaptive!(output::AA,subintegrals::AA,workspaces,center::Real,
 end
 
 
-#=
-Integrates amplitude(x)*cos(angle(x))*cos(w*x)*dx 
-over [xmin,xmax] for all w in freqs
+"""
+    ```
+    fccquad_cc(amplitude::Function,
+               angle::Function,
+               freqs::AbstractArray{<:Real};
+               kwargs...)
+    ```
+
+Integrates `amplitude(x)*cos(angle(x))*cos(w*x)*dx`
+over a finite interval, for all `w` in `freqs`,
 using a variant of Filon-Chenshaw-Curtis quadrature.
-The method keyword argument specifies the variant.
+
+Use the `xmin` and `xmax` keyword arguments to specify 
+a finite domain of integration [xmin,xmax]. Default: [-1,1].
+
+Required: `amplitude` and `angle` should be real-valued on [xmin,xmax].
+
+Recommended: `amplitude` should not be highly oscillatory on [xmin,xmax].
+The first derivative of `angle` should also not be highly oscillatory.
 
 Outputs a tuple (results, function_evaluation_count) where results
 is a 2xL real matrix, where L=length(freqs), 
@@ -423,27 +495,33 @@ with row 1 containing the estimated integrals
 and row 2 the discrepancies between row 1 and estimates made
 using a reduced Chebyshev interpolation degree.
 
-WARNING: amplitude(x) and angle(x) are assumed to be real-valued.
-WARNING: log2degree is assumed to be at least 3.
-=#
+The `T` keyword argument specifies the working real scalar datatype.
+(Default: `Float64`.)
+The functions `amplitude` and `angle` should output
+something of type `T` when the input has type `T`.
+
+See `fccquad` for documentation of all other keyword arguments.
+
+See also: `fccquad_cs`, `fccquad_sc`, `fccquad_ss`, `fccquad`.
+"""
 function fccquad_cc(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(coscos!,amplitude,angle,freqs;kwargs...)
 end
 
-#Like fccquad_cc(), but integrates amplitude(x)*cos(angle(x))*sin(w*x)*dx
+"Like fccquad_cc(), but integrates `amplitude(x)*cos(angle(x))*sin(w*x)*dx`"
 function fccquad_cs(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(cossin!,amplitude,angle,freqs;kwargs...)
 end
 
-#Like fccquad_cc(), but integrates amplitude(x)*sin(angle(x))*cos(w*x)*dx
+"Like fccquad_cc(), but integrates `amplitude(x)*sin(angle(x))*cos(w*x)*dx`"
 function fccquad_sc(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(sincos!,amplitude,angle,freqs;kwargs...)
 end
 
-#Like fccquad_cc(), but integrates amplitude(x)*sin(angle(x))*sin(w*x)*dx
+"Like fccquad_cc(), but integrates `amplitude(x)*sin(angle(x))*sin(w*x)*dx`"
 function fccquad_ss(amplitude::Function,angle::Function,freqs::AA{<:Real};
                     kwargs...)
     fccquad_trig(sinsin!,amplitude,angle,freqs;kwargs...)
