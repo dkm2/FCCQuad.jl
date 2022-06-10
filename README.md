@@ -19,7 +19,7 @@ It is intended for $f$, $|g|$ and $(\arg(g))'$ not highly oscillatory.
 $$\int_a^b f(x)\cos(g(x))\cos(\omega x)dx$$
 
 where $\omega$ ranges over a finite set.
-It is intended for $f$ and $g$ not highly oscillatory.
+It is intended for $f$ and $g'$ not highly oscillatory.
 (But $\cos(g)$ may be highly oscillatory.)
 
 `fccquad_cs`, `fccquad_sc`, and `fccquad_ss`
