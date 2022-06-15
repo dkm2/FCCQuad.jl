@@ -64,21 +64,26 @@ All methods involve evaluating a function $h\colon[-1,1]\to\mathbb{C}$
 at $N+1$ Chebyshev nodes $\cos(\pi k/N)$ for $0\leq k\leq N$
 and computing the coefficients of the Chebyshev interpolant
 $\sum_{n\leq N} a_n T_n(x)$ in time $O(N\log N)$ using an FFT.
-Given $\omega$, the fundamental integrals $\int_{-1}^1T_n(x)e^{i\omega x}$
+Given $\omega$, the fundamental integrals $\int_{-1}^1T_n(x)e^{i\omega x}dx$
 are evaluated for all $n\leq N$ using method "RR" of (Evans and Webster, 1999),
 which has time complexity $O(N)$ uniformly with respect to $\omega$.
 
 The `:tone` and `:chirp` methods compute Taylor coefficients
 of $\arg(h)$ at $0$ and then factor out a corresponding
-tone $e^{i\mu x}$ or chirp $e^{i\mu x+i\nu x^2}$
+tone $e^{i\nu x}$ or chirp $e^{i\nu x+i\mu x^2}$
 from $h$ before sampling at the Chebyshev nodes.
-To compensate, the $e^{i\mu x}$ factor is absorbed into $e^{i\omega x}$.
+To compensate, the $e^{i\nu x}$ factor is absorbed into $e^{i\omega x}$.
 
-The `:chirp` method compensates for the $e^{i\nu x^2}$ factor
+The `:chirp` method compensates for the $e^{i\mu x^2}$ factor
 using dilation and multiplication of Chebyshev series that come
 from interpolating $h$ and from precomputed interpolations
 of a fixed set of chirps. (The `:chirp` method will divide
 the domain of integration into subintervals and recurse if
-$|\nu|$ is too large for this fixed set.)
+$|\mu|$ is too large for this fixed set.)
 Because of its complexity, the `:chirp` method is only recommended
 for integrands that are extremely expensive to sample.
+
+For more information, see the preprint:
+
+[Filon-Clenshaw-Curtis Quadrature with Automatic Tone Removal](https://dkmj.org/academic/numfour.pdf)
+
