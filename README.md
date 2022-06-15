@@ -8,8 +8,11 @@
 
 $$\int_a^b f(x)g(x)e^{i\omega x}dx$$
 
-where $g$ is nonzero and $\omega$ ranges over a finite set.
-It is intended for $f$, $|g|$ and $(\arg(g))'$ not highly oscillatory.
+where $g$ is nonzero and
+$\omega$ ranges over a finite set.
+It is intended for $f$,
+$|g|$, and
+$d(\arg(g(x)))/dx$ not highly oscillatory.
 (But $g$ may be highly oscillatory.)
 
 ## Real finite Fourier integrals
@@ -19,7 +22,8 @@ It is intended for $f$, $|g|$ and $(\arg(g))'$ not highly oscillatory.
 $$\int_a^b f(x)\cos(g(x))\cos(\omega x)dx$$
 
 where $\omega$ ranges over a finite set.
-It is intended for $f$ and $g'$ not highly oscillatory.
+It is intended for $f$ and
+$g'$ not highly oscillatory.
 (But $\cos(g)$ may be highly oscillatory.)
 
 `fccquad_cs`, `fccquad_sc`, and `fccquad_ss`
@@ -61,18 +65,26 @@ Method | Supported Working Precisions
 ## Algorithms
 
 All methods involve evaluating a function $h\colon[-1,1]\to\mathbb{C}$
-at $N+1$ Chebyshev nodes $\cos(\pi k/N)$ for $0\leq k\leq N$
+at $N+1$ Chebyshev nodes
+$\cos(\pi k/N)$ for
+$0\leq k\leq N$
 and computing the coefficients of the Chebyshev interpolant
-$\sum_{n\leq N} a_n T_n(x)$ in time $O(N\log N)$ using an FFT.
-Given $\omega$, the fundamental integrals $\int_{-1}^1T_n(x)e^{i\omega x}dx$
+$\sum_{n\leq N} a_n T_n(x)$ in time
+$O(N\log N)$ using an FFT.
+Given $\omega$, the fundamental integrals
+$\int_{-1}^1T_n(x)e^{i\omega x}dx$
 are evaluated for all $n\leq N$ using method "RR" of (Evans and Webster, 1999),
-which has time complexity $O(N)$ uniformly with respect to $\omega$.
+which has time complexity $O(N)$ uniformly with respect to
+$\omega$.
 
 The `:tone` and `:chirp` methods compute Taylor coefficients
-of $\arg(h)$ at $0$ and then factor out a corresponding
-tone $e^{i\nu x}$ or chirp $e^{i\nu x+i\mu x^2}$
+of $\arg(h)$ at
+$0$ and then factor out a corresponding
+tone $e^{i\nu x}$ or chirp
+$e^{i\nu x+i\mu x^2}$
 from $h$ before sampling at the Chebyshev nodes.
-To compensate, the $e^{i\nu x}$ factor is absorbed into $e^{i\omega x}$.
+To compensate, the $e^{i\nu x}$ factor is absorbed into
+$e^{i\omega x}$.
 
 The `:chirp` method compensates for the $e^{i\mu x^2}$ factor
 using dilation and multiplication of Chebyshev series that come
