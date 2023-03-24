@@ -65,10 +65,10 @@ function ifft!(input::AbstractVector,output::AbstractVector,workspace::AbstractV
                N=length(input))
     T=eltype(workspace)
     key = N=>T
-    if key in keys(ifft_cache)
+    if haskey(ifft_cache,key)
         exps = ifft_cache[key]
     else
-        exps = ifft_cache[key] = exp_populate(N,T)
+        ifft_cache[key] = exps = exp_populate(N,T)
     end
     ifft_helper!(input,output,workspace,exps,0,1,N)
 end
