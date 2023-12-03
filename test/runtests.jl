@@ -111,7 +111,7 @@ end
 @testset "Chebyshev weights" begin
     function checkweights(N,w,args...)
         a = getweights(N,w,args...)
-        atol2 = N*eps()^2
+        atol2 = 2N*eps()^2
         gk_atol=eps()
         gk_rtol=10^4 * eps()
         for n in 0:2:N

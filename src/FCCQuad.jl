@@ -8,6 +8,7 @@ include("Fct.jl")
 include("Cheb.jl")
 include("chirps.jl")
 include("chebweights.jl")
+include("Duals.jl")
 include("Jets.jl")
 
 using LinearAlgebra, Scratch
@@ -191,7 +192,7 @@ function tonequad!(output::AA,workspaces,center::Real,radius::Real,
                    prefactor::Function,oscillator::Function,freqs::AA,
                    minlog2N::Integer,maxlog2N::Integer,weightmethod::Symbol,
                    T::Type,reltol::Real,abstol::Real,vectornorm::Function)
-    cfreq = Jets.phase_velocity(oscillator(Jets.Jet(center,radius)))
+    cfreq = Duals.phase_velocity(oscillator(Duals.Dual(center,radius)))
     if !isfinite(cfreq)
         cfreq = zero(cfreq)
     end
